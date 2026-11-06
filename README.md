@@ -42,8 +42,8 @@ inteiro, no fuso do navegador:
 Os outros códigos (potência, tensão, temperatura…) usam os mesmos separadores, em linha.
 
 **Energia por período.** Para os códigos de energia o menu oferece «Energia consumida por período» e
-«Energia injetada por período», desenhadas em barras. Os totais acumulados (`total_forward_energy`,
-`reverse_energy_total`) não se oferecem como gráfico: aparecem só no separador *Estado*. Há dois tipos
+«Energia injetada por período», desenhadas em barras. Os valores brutos de energia (`total_forward_energy`,
+`reverse_energy_total` e `add_ele`) não se oferecem como gráfico: aparecem só no separador *Estado*. Há dois tipos
 de código, com cálculos diferentes:
 
 - **Contadores acumulados** (`total_forward_energy`, `reverse_energy_total`): cada barra é o último
@@ -52,8 +52,8 @@ de código, com cálculos diferentes:
 - **Incrementos** (`add_ele`, «electricity added»): cada valor reportado é a energia consumida desde
   o reporte anterior (não é um total), por isso cada barra é a **soma** dos valores do período.
   Confirmado com o «Termo acumulador Solar»: a soma diária coincide, dentro de ~1 %, com o integral
-  da potência instantânea (`cur_power`). Por isso o `add_ele` aparece no Estado e no menu como
-  «Energia (último incremento)».
+  da potência instantânea (`cur_power`). Por isso o `add_ele` aparece no Estado como
+  «Energia (último incremento)» e só se oferece no gráfico «por período».
 
 Um **cartão** no canto superior direito do painel mostra o **total do período** (soma das barras),
 por exemplo «Energia consumida no dia (até agora): 16,12 kW·h»; fica escondido nas séries que não são

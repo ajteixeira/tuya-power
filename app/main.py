@@ -60,7 +60,7 @@ def _dt(ms, fmt="datetime"):
     """Data/hora como <time data-ms>: o navegador reescreve-a no formato e fuso das definições
     do sistema; o texto do servidor serve só de alternativa (sem JavaScript)."""
     d = datetime.fromtimestamp(ms / 1000)
-    txt = d.strftime("%H:%M:%S") if fmt == "time" else d.strftime("%Y-%m-%d %H:%M:%S")
+    txt = {"time": d.strftime("%H:%M:%S"), "hm": d.strftime("%H:%M")}.get(fmt) or d.strftime("%Y-%m-%d %H:%M:%S")
     return Markup(f'<time data-ms="{int(ms)}" data-fmt="{fmt}">{txt}</time>')
 
 
@@ -253,11 +253,12 @@ LABELS = {
 }
 MAIN = ["switch", "switch_1", "phase_a", "phase_b", "phase_c", "cur_power", "cur_voltage", "cur_current", "add_ele", "total_forward_energy",
         "reverse_energy_total", "leakage_current", "temp_value", "temp_current", "va_temperature",
-        "va_humidity", "humidity_value", "battery_percentage", "battery_state", "balance_energy"]
+        "va_humidity", "humidity_value", "battery_percentage", "battery_state", "today_forward", "today_reverse"]
 
 
 @app.get("/device/{dev_id}/status", response_class=HTMLResponse)
-async def status(request: Request, dev_id: str):
+async def status(request: Request, dev_id: str, since: int | None = None):
+    """since: início do dia no fuso do navegador (ms), para o consumo de hoje."""
     d = get_device(dev_id)
     funcs, stat = _spec(d)
     try:
@@ -271,6 +272,18 @@ async def status(request: Request, dev_id: str):
         label = LABELS.get(code, code)
         if code.startswith("alarm_set") and _parse_alarm(val):
             continue  # mostrados no separador «Alarmes»
+        if code == "add_ele":
+            # cada valor de add_ele é a energia consumida desde o reporte anterior: o consumo de hoje é a soma
+            day0 = since if since is not None else int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+            scale = next((_values(i).get("scale", 0) for i in stat + funcs if i["code"] == code), 0)
+            with db.connect() as c:
+                tot, last = c.execute("""SELECT SUM(CAST(value AS REAL)), MAX(event_time) FROM logs
+                    WHERE device_id=? AND code='add_ele' AND event_time>=?""", (dev_id, day0)).fetchone()
+            tot = (tot or 0) / 10 ** scale
+            lbl = Markup("Energia consumida hoje") if not last else Markup("Energia consumida hoje (até ") + _dt(last, "hm") + Markup(")")
+            main.append({"code": code, "label": lbl, "text": f"{round(tot, 2):g} {DEFAULT_UNITS['add_ele']}",
+                         "bool": None, "is_switch": False})
+            continue
         item = {"code": code, "label": label, "text": _scaled(code, val, stat + funcs),
                 "bool": val if isinstance(val, bool) else None, "is_switch": code.startswith("switch")}
         if code in MAIN:
@@ -278,6 +291,27 @@ async def status(request: Request, dev_id: str):
         elif not item["text"]:
             item["text"] = "—"
         (main if code in MAIN else other).append(item)
+    # Contadores acumulados (Geral): consumo/injeção de hoje = valor atual menos o último valor antes das 00:00
+    live = {x["code"]: x["value"] for x in st}
+    day0 = since if since is not None else int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    for code, tag, lbl in (("total_forward_energy", "today_forward", "Energia consumida hoje"),
+                           ("reverse_energy_total", "today_reverse", "Energia injetada hoje")):
+        val = live.get(code)
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            continue
+        spec = next((_values(i) for i in stat + funcs if i["code"] == code), {})
+        num = "(value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND value NOT GLOB '*[^0-9.eE+-]*'"
+        with db.connect() as c:
+            base = c.execute(f"""SELECT value FROM logs WHERE device_id=? AND code=? AND event_time<? AND {num}
+                ORDER BY event_time DESC LIMIT 1""", (dev_id, code, day0)).fetchone()
+            if base is None:  # sem dados antes de hoje: usar a primeira leitura de hoje
+                base = c.execute(f"""SELECT value FROM logs WHERE device_id=? AND code=? AND event_time>=? AND {num}
+                    ORDER BY event_time LIMIT 1""", (dev_id, code, day0)).fetchone()
+        if base is None:
+            continue
+        delta = max(val - float(base[0]), 0) / 10 ** spec.get("scale", 0)
+        main.append({"code": tag, "label": lbl, "text": f"{round(delta, 2):g} {spec.get('unit', 'kW·h')}",
+                     "bool": None, "is_switch": False})
     main.sort(key=lambda i: MAIN.index(i["code"]))
     return templates.TemplateResponse(request, "_status.html", {
         "main": main, "other": other, "err": err,
@@ -329,7 +363,7 @@ async def history(dev_id: str, code: str, since: int, until: int | None = None):
 #    período menos o do período anterior;
 #  - incrementos (add_ele, «electricity added»): cada reporte é a energia consumida desde o anterior,
 #    logo o consumo do período é a SOMA dos valores (confirmado: bate com o integral de cur_power).
-COUNTER_TOTALS = {"total_forward_energy", "reverse_energy_total"}
+ENERGY_RAW = {"total_forward_energy", "reverse_energy_total", "add_ele"}  # só se oferecem «por período»
 CUMULATIVE = {"total_forward_energy": "Energia consumida por período",
               "reverse_energy_total": "Energia injetada por período",
               "add_ele": "Energia consumida por período"}
@@ -338,14 +372,14 @@ CUMULATIVE = {"total_forward_energy": "Energia consumida por período",
 @app.get("/device/{dev_id}/codes")
 async def codes(dev_id: str):
     """Códigos com valores numéricos (os únicos que se podem desenhar no gráfico), com a etiqueta
-    a mostrar; os contadores de energia só se oferecem por período («:delta»), não o total."""
+    a mostrar; os códigos de energia só se oferecem por período («:delta»), não os valores brutos."""
     with db.connect() as c:
         rows = c.execute("""SELECT DISTINCT code FROM logs WHERE device_id=? AND code IS NOT NULL
             AND (value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND value NOT GLOB '*[^0-9.eE+-]*'
             ORDER BY code""", (dev_id,)).fetchall()
     out = []
     for (code,) in rows:
-        if code not in COUNTER_TOTALS:  # os totais acumulados não se oferecem como gráfico
+        if code not in ENERGY_RAW:  # totais/incrementos de energia não se oferecem como gráfico
             out.append({"id": code, "label": LABELS.get(code, code)})
         if code in CUMULATIVE:
             agg = "sum" if code == "add_ele" else "counter"
