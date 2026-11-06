@@ -64,23 +64,44 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 const id="{{ d.id }}";let chart;
+// Valor por período a partir de um contador acumulado: último valor de cada hora/dia/mês menos o do período anterior
+function deltas(pts,unit){
+  const key=d=>unit==='hour'?[d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()]:unit==='day'?[d.getFullYear(),d.getMonth(),d.getDate()]:[d.getFullYear(),d.getMonth()];
+  const start=a=>new Date(a[0],a[1],a[2]||1,a[3]||0).getTime();
+  const b=new Map();
+  for(const p of pts){const k=key(new Date(p.x)).join('-');
+    if(!b.has(k))b.set(k,{x:start(key(new Date(p.x))),first:p.y,last:p.y});b.get(k).last=p.y;}
+  const out=[];let prev=null;
+  for(const v of [...b.values()].sort((a,c)=>a.x-c.x)){
+    const d=prev===null?v.last-v.first:v.last-prev;prev=v.last;
+    out.push({x:v.x,y:Math.round(Math.max(d,0)*1000)/1000});}
+  return out;}
 async function draw(){
-  const code=document.getElementById('code').value; if(!code) return;
-  const h=await (await fetch(`/device/${id}/history?code=${code}&days=${document.getElementById('days').value}`)).json();
-  const pts=h.points;
+  const sel=document.getElementById('code').value; if(!sel) return;
+  const [code,mode]=sel.split(':'),delta=mode==='delta';
+  const days=+document.getElementById('days').value;
+  const h=await (await fetch(`/device/${id}/history?code=${code}&days=${days}`)).json();
+  const unit=days<=1?'hour':days<=30?'day':'month';  // período de agregação (só nos valores por período)
+  const pts=delta?deltas(h.points,unit):h.points;
   chart?.destroy();
-  // Eixo simples: horas (HH:mm) até 24 h, dias (dd/mm) acima; sempre relógio de 24 horas
-  const days=+document.getElementById('days').value,hourly=days<=1;
-  const tick=v=>new Date(v).toLocaleString(undefined,hourly?{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}:{day:'2-digit',month:'2-digit'});
-  chart=new Chart(document.getElementById('ch'),{type:'line',data:{datasets:[{label:code,data:pts,pointRadius:pts.length<40?3:0,borderWidth:1.5,stepped:true}]},
+  // Eixo simples: horas (HH:mm) em 24 h, dias (dd/mm) ou meses (mm/aaaa); sempre relógio de 24 horas
+  const axis=delta?unit:(days<=1?'hour':'day');
+  const fmt={hour:{hour:'2-digit',minute:'2-digit',hourCycle:'h23'},day:{day:'2-digit',month:'2-digit'},month:{month:'2-digit',year:'numeric'}}[axis];
+  const tick=v=>new Date(v).toLocaleString(undefined,fmt);
+  const per={hour:'hora',day:'dia',month:'mês'}[unit];
+  const title=delta?`${document.getElementById('code').selectedOptions[0].textContent.replace('por período','por '+per)}`+(h.unit?` (${h.unit})`:''):(h.unit?`${h.label} (${h.unit})`:h.label);
+  chart=new Chart(document.getElementById('ch'),{type:delta?'bar':'line',
+    data:{datasets:[delta?{label:title,data:pts,backgroundColor:'rgba(37,99,235,.55)',borderWidth:0}
+                         :{label:code,data:pts,pointRadius:pts.length<40?3:0,borderWidth:1.5,stepped:true}]},
     options:{parsing:false,
-      scales:{y:{title:{display:true,text:h.unit?`${h.label} (${h.unit})`:h.label}},x:{type:'time',time:{unit:hourly?'hour':'day'},ticks:{maxRotation:0,autoSkipPadding:20,callback:(v,i,t)=>tick(t[i].value)}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>new Date(it[0].parsed.x).toLocaleString(undefined,{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'})}}}}});
+      scales:{y:{title:{display:true,text:title},beginAtZero:delta},x:{type:'time',offset:delta,time:{unit:axis},ticks:{maxRotation:0,autoSkipPadding:20,callback:(v,i,t)=>tick(t[i].value)}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>new Date(it[0].parsed.x).toLocaleString(undefined,delta?fmt:{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'})}}}}});
 }
 (async()=>{const cs=await (await fetch(`/device/${id}/codes`)).json();
-  const s=document.getElementById('code');s.innerHTML=cs.map(c=>`<option>${c}</option>`).join('');
+  const s=document.getElementById('code');s.innerHTML=cs.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
   document.getElementById('nochart').hidden=cs.length>0;document.getElementById('hf').hidden=cs.length==0;
-  s.value=['cur_power','total_forward_energy','temp_current','va_temperature'].find(c=>cs.includes(c))||cs[0]||'';draw();})();
+  const ids=cs.map(c=>c.id);
+  s.value=['cur_power','total_forward_energy','temp_current','va_temperature'].find(c=>ids.includes(c))||ids[0]||'';draw();})();
 document.getElementById('code').onchange=draw;document.getElementById('days').onchange=draw;
 
 // «Outros parâmetros»: manter aberto/fechado entre atualizações do estado (e entre visitas)

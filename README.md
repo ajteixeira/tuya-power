@@ -5,14 +5,37 @@ histórico local completo, estado online, controlo, configuração e consulta de
 
 ## Funcionalidades
 
-1. **Histórico local:** descarga incremental e sem duplicados para SQLite, automática
-   1x por dia (predefinição: 03:00) e manual através do botão «Sincronizar agora».
+1. **Histórico local:** descarga incremental e sem duplicados para SQLite, de hora a hora (cron) e
+   1x por dia pelo próprio site (predefinição 03:00), mais o botão manual «Sincronizar agora».
 2. **Estado online** de cada dispositivo (atualização a cada 5 s).
-3. **Ligar, desligar e ajustar** (interruptores, números, listas, texto).
-4. **Configuração:** as funções configuráveis declaradas pela Tuya surgem na mesma lista de controlos.
-5. **Histórico:** gráfico (24 h a 1 ano) e tabela paginada de registos/consumos, com filtros por
-   data/hora, tipo, código (escolha múltipla) e valor mínimo/máximo.
-6. **Alarmes do disjuntor:** descodificação e edição dos limites (sobrecorrente, tensão, temperatura, potência).
+3. **Ligar, desligar e ajustar** (interruptores, números, listas, texto), com os controlos
+   bloqueados até se carregar em «Editar».
+4. **Configuração:** as funções configuráveis declaradas pela Tuya.
+5. **Alarmes do disjuntor:** descodificação e edição dos limites (sobrecorrente, tensão,
+   temperatura, potência).
+6. **Histórico e registos:** gráfico (24 h a 1 ano) e tabela paginada de registos/consumos, com
+   filtros por data/hora, tipo, código (escolha múltipla) e valor mínimo/máximo.
+
+## Interface
+
+A página de cada dispositivo tem cinco separadores (guardados no endereço, por exemplo
+`#alarmes`, e lembrados entre visitas):
+
+| Separador | Conteúdo |
+|---|---|
+| **Estado** | Mosaicos com os valores principais (potência, tensão, corrente, energia, temperatura, humidade, bateria, fases A/B/C…), etiquetas Ligado/Desligado e a secção recolhida «Outros parâmetros» (mantém-se aberta ou fechada entre atualizações). |
+| **Configuração** | Controlos de cada função do dispositivo. |
+| **Alarmes** | Tabela editável dos limites do disjuntor (ver abaixo), com os valores brutos recolhidos. |
+| **Histórico** | Gráfico de um código numérico à escolha, com 24 h, 7 dias, 30 dias ou 1 ano; o eixo vertical mostra o nome e a unidade. |
+| **Registos** | Tabela paginada de todos os registos gravados, com filtros. |
+
+**Segurança dos comandos:** nos separadores *Configuração* e *Alarmes* há um botão vermelho
+**Editar** que desbloqueia todos os controlos do grupo; «Cancelar» repõe os valores e volta a
+bloquear. Depois de enviar um comando, o grupo volta a bloquear-se sozinho.
+
+**Datas e horas:** são escritas pelo navegador, no formato e fuso do navegador (ordem do dia e do
+mês conforme a língua), **sempre com relógio de 24 horas**. Os campos «Início» e «Fim» dos filtros
+são controlos do próprio navegador, por isso o seu formato depende da língua do navegador.
 
 ## Estrutura
 
@@ -122,14 +145,20 @@ Cada datapoint é uma sequência de registos de 4 bytes: `[tipo, corte, valor]`,
 Exemplo: `AQEAEAMBAQkEAQBa` → `01 01 00 10 | 03 01 01 09 | 04 01 00 5a` →
 sobrecorrente 16 A, sobretensão 265 V e subtensão 90 V, todas com corte ativo.
 
-**Na interface:**
-- O estado e a tabela de registos mostram estes valores descodificados (por exemplo
-  `Sobretensão: 265 V · corte ativo`), com os bytes e o base64 originais entre parênteses retos.
+**Na interface (separador Alarmes):**
+- Uma tabela com **Alarme**, **Limite** e **Corte do disjuntor**. Os campos ficam bloqueados até
+  se carregar em «Editar»; um só botão **Aplicar alterações** envia o que mudou, depois de
+  confirmação. Só são enviados os `alarm_set_N` cujo valor mudou (sem alterações não se envia nada).
+- Valores fora de 0–65535 são recusados. Os tipos desconhecidos são reenviados tal como estão.
+  Depois do envio, a tabela volta a ler o estado do dispositivo.
+- A secção recolhida «Valores brutos» mostra o hexadecimal e o base64 de cada `alarm_set_N`.
+- No **Estado** e nos **Registos** os alarmes aparecem descodificados (por exemplo
+  `Sobretensão: 265 V · corte ativo`) e, nos registos, com os bytes originais entre parênteses retos.
   Qualquer outro datapoint Raw é mostrado em hexadecimal, com o base64 original.
-- O cartão **Alarmes e limites** da página do dispositivo permite alterar o valor de cada alarme
-  e ligar/desligar o corte. «Aplicar» pede confirmação, volta a montar o base64 e envia o comando
-  `alarm_set_N`. Valores fora de 0–65535 são recusados. Os tipos desconhecidos são reenviados
-  tal como estão. Após o envio, o formulário volta a ler o estado do dispositivo.
+
+**Fases A, B e C** (`phase_a`/`phase_b`/`phase_c`, por exemplo no «Geral»): formato padrão da Tuya de
+8 bytes (tensão em décimas de volt, 2 B · corrente em mA, 3 B · potência em W, 3 B), mostrado como
+`248.2 V · 5.935 A · 1345 W`. Não foi confirmado com a app; fases vazias aparecem como «—».
 
 **Cuidados:**
 - Isto altera proteções reais do disjuntor. Experimente primeiro com uma alteração segura e
@@ -177,6 +206,15 @@ Defina `WEB_PASSWORD` antes de depurar assim.
 
 - A Tuya guarda apenas cerca de 7 dias de registos. Se o serviço estiver parado mais do que isso,
   perde-se o intervalo em falta; a base local só fica completa daqui para a frente.
+- **Dispositivos com modelo de objetos** (por exemplo sensores de temperatura e humidade, como o
+  «Sótão»): a API padrão da Tuya responde `function not support (2003)` / `not support this device
+  (2009)`. Nesses casos a aplicação usa a API do modelo de objetos (`/v2.0/cloud/thing/...`) para o
+  estado, as especificações e os comandos. A API de registos só lhes devolve eventos online/offline;
+  para terem histórico de valores, cada sincronização grava a **leitura atual** (hora do último
+  reporte), pelo que o histórico tem uma leitura por sincronização (uma por hora com o cron).
+- O gráfico só oferece códigos com valores numéricos (códigos Raw ou booleanos não se desenham).
+- A Tuya não oferece, nas APIs a que o projeto tem acesso, consumos agregados por dia ou mês além
+  dos 7 dias de registos; o histórico longo é o que a base local for acumulando.
 - Os valores de potência, tensão, corrente e energia são mostrados com a escala e a unidade
   declaradas na especificação do dispositivo. Nos campos de configuração numéricos, o valor
   introduzido é enviado em bruto (sem escala).

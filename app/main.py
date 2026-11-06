@@ -322,14 +322,26 @@ async def history(dev_id: str, code: str, days: int = 7):
     return JSONResponse({"points": pts, "unit": unit, "label": LABELS.get(code, code)})
 
 
+# Contadores acumulados: além do total, oferece-se o consumo/injeção por período (hora, dia ou mês)
+CUMULATIVE = {"total_forward_energy": "Energia consumida por período",
+              "reverse_energy_total": "Energia injetada por período",
+              "add_ele": "Energia por período"}
+
+
 @app.get("/device/{dev_id}/codes")
 async def codes(dev_id: str):
-    """Códigos com valores numéricos (os únicos que se podem desenhar no gráfico)."""
+    """Códigos com valores numéricos (os únicos que se podem desenhar no gráfico), com a etiqueta
+    a mostrar; os contadores acumulados ganham uma entrada «:delta» (valor por período)."""
     with db.connect() as c:
         rows = c.execute("""SELECT DISTINCT code FROM logs WHERE device_id=? AND code IS NOT NULL
             AND (value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND value NOT GLOB '*[^0-9.eE+-]*'
             ORDER BY code""", (dev_id,)).fetchall()
-    return JSONResponse([r[0] for r in rows])
+    out = []
+    for (code,) in rows:
+        out.append({"id": code, "label": LABELS.get(code, code)})
+        if code in CUMULATIVE:
+            out.append({"id": code + ":delta", "label": CUMULATIVE[code]})
+    return JSONResponse(out)
 
 
 @app.get("/device/{dev_id}/log", response_class=HTMLResponse)
