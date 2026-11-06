@@ -6,7 +6,7 @@
   <div hx-get="/device/{{ d.id }}/status" hx-trigger="load, every 5s">a carregar…</div></div>
 
 <div class="card"><h3>Controlo e configuração</h3>
-{% for f in funcs %}
+{% for f in funcs if not (f.type == 'Raw' and f.code.startswith('alarm_set')) %}
   <form class="inline" hx-post="/device/{{ d.id }}/cmd" hx-target="next .res" hx-swap="innerHTML">
     <input type="hidden" name="code" value="{{ f.code }}"><input type="hidden" name="kind" value="{{ f.type }}">
     <label style="min-width:180px">{{ f.code }}</label>
@@ -21,6 +21,9 @@
     {% endif %}
   </form><div class="res"></div>
 {% else %}<p class="mut">Sem funções disponíveis.</p>{% endfor %}</div>
+
+<div class="card"><h3>Alarmes e limites</h3>
+  <div id="alarms" hx-get="/device/{{ d.id }}/alarms" hx-trigger="load">a carregar…</div></div>
 
 <div class="card"><h3>Histórico (base de dados local)</h3>
   <form class="inline" id="hf"><select id="code"></select>

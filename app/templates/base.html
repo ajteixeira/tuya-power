@@ -30,6 +30,10 @@ form.lf{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));ga
 .dd .panel label:hover{background:var(--bg)}
 button.sec{background:transparent;color:var(--fg);border-color:var(--bd);height:34px}button.sec:hover{background:var(--bg)}
 .hint{font-size:12px;color:var(--mut);margin:2px 0 10px}
+.alr{border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:10px}.alr h4{margin:0 0 8px;font-size:13px;color:var(--mut)}
+.alr-row{display:grid;grid-template-columns:minmax(130px,1.2fr) minmax(130px,1fr) auto;gap:10px;align-items:center;padding:5px 0;border-top:1px solid var(--bd)}
+.alr-row:first-of-type{border-top:0}.alr-name{font-weight:600}.alr-val input{width:90px}.alr-on{display:flex;gap:6px;align-items:center}
+@media(max-width:560px){.alr-row{grid-template-columns:1fr}}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
 <header><a href="/">⚡ Tuya Power</a></header>

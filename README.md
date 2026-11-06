@@ -10,7 +10,8 @@ histórico local completo, estado online, controlo, configuração e consulta de
 2. **Estado online** de cada dispositivo (atualização a cada 5 s).
 3. **Ligar, desligar e ajustar** (interruptores, números, listas, texto).
 4. **Configuração:** as funções configuráveis declaradas pela Tuya surgem na mesma lista de controlos.
-5. **Histórico:** gráfico (24 h a 1 ano) e tabela paginada de registos/consumos.
+5. **Histórico:** gráfico (24 h a 1 ano) e tabela paginada de registos/consumos, com filtros por
+   data/hora, tipo, código (escolha múltipla) e valor mínimo/máximo.
 
 ## Estrutura
 
@@ -22,7 +23,8 @@ app/
   db.py          esquema SQLite
   config.py      definições lidas do .env
   templates/     páginas Jinja2/HTMX
-scripts/sync_once.py   sincronização única (para depuração)
+scripts/sync_once.py   sincronização única (para depuração e cron)
+scripts/cron_sync.sh   envoltório do cron (flock + registo em data/sync.log)
 run.sh                 arranque do servidor
 .vscode/               configurações de depuração
 data/tuya.db           base de dados (criada automaticamente)
@@ -85,7 +87,8 @@ Edite o `.env`:
 | `TUYA_ENDPOINT` | Predefinição `https://openapi.tuyaeu.com` |
 | `WEB_USER` / `WEB_PASSWORD` | Autenticação HTTP Basic. **Com a palavra-passe vazia o site fica aberto.** |
 | `DB_PATH` | Caminho da base de dados (predefinição `data/tuya.db`) |
-| `SYNC_HOUR` | Hora local da descarga diária (predefinição 3) |
+| `SYNC_HOUR` | Hora local da descarga diária feita pelo próprio site (predefinição 3) |
+| `SYNC_IN_APP` | `true` (predefinição) mantém a sincronização diária do site; `false` se usar só o cron |
 | `SYNC_INITIAL_DAYS` | Dias a descarregar na 1.ª sincronização (predefinição 7) |
 
 ## Execução
@@ -96,6 +99,27 @@ Edite o `.env`:
 
 Na primeira vez, clicar em **Sincronizar agora** para listar os dispositivos e
 descarregar o histórico. O estado da última sincronização aparece na página inicial.
+
+## Sincronização automática (cron)
+
+A descarga pode correr independentemente do site, todas as horas, através do cron:
+
+```bash
+crontab -e
+# ao minuto 5 de cada hora
+5 * * * * /home/l00ks/src/tuya-power/scripts/cron_sync.sh
+```
+
+- `scripts/cron_sync.sh` corre `scripts/sync_once.py` com `flock` (nunca há duas execuções
+  sobrepostas) e acrescenta o resultado a `data/sync.log` (`tail data/sync.log`).
+- O `sync_once.py` termina com código 1 se houver erro, e cada execução fica registada na tabela
+  `sync_runs` (visível na página inicial).
+- A descarga é incremental e sem duplicados, por isso correr com mais frequência é seguro.
+  A Tuya limita a frequência de pedidos (erro `40000309`); a aplicação espera e repete sozinha.
+- O site tem também uma sincronização diária própria (`SYNC_HOUR`). Se usar o cron, pode
+  desligá-la com `SYNC_IN_APP=false` no `.env` (reiniciar o servidor); manter as duas é inofensivo.
+- A 1.ª descarga completa é demorada (dezenas de minutos, consoante o número de registos dos
+  últimos 7 dias); as seguintes demoram segundos.
 
 ## Depuração no VS Code
 

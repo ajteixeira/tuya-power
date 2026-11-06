@@ -1,3 +1,6 @@
+import asyncio
+import base64
+import binascii
 import json
 import secrets
 import time
@@ -71,7 +74,98 @@ def _values(item):
         return {}
 
 
+# Registos dos alarm_set_* de um disjuntor: [tipo, corte ativo, valor uint16 BE].
+# Tipos 1, 3, 4, 5 e 7 confirmados com a app Tuya Smart (alarmes do disjuntor); 2 e 6 desconhecidos.
+# Unidade/escala do tipo 7 (potência alta) por confirmar: na app aparece em kW.
+ALARM_TYPES = {1: ("Sobrecorrente", "A"), 3: ("Sobretensão", "V"), 4: ("Subtensão", "V"),
+               5: ("Temperatura alta", "°C"), 7: ("Potência alta", "kW")}
+
+
+def _raw(code, value):
+    """Tipo Raw: a Tuya envia base64. Mostra os bytes em hexadecimal; os alarm_set_* são
+    descodificados em registos de 4 bytes (formato não documentado pela Tuya, validado com a app)."""
+    try:
+        data = base64.b64decode(str(value), validate=True)
+    except (binascii.Error, ValueError):
+        return str(value)
+    if not data:
+        return str(value)
+    txt = f"{data.hex(' ')}  ({value})"
+    if code.startswith("alarm_set") and len(data) % 4 == 0:
+        recs = []
+        for i in range(0, len(data), 4):
+            t, on, val = data[i], data[i + 1], int.from_bytes(data[i + 2:i + 4], "big")
+            name, unit = ALARM_TYPES.get(t, (f"tipo {t}", ""))
+            recs.append(f"{name}: {val} {unit}".rstrip() + f" · corte {'ativo' if on else 'inativo'}")
+        return " | ".join(recs) + f"  [{txt}]"
+    return txt
+
+
+def _parse_alarm(value):
+    """Registos [tipo, corte, valor uint16 BE] de um alarm_set_*; None se o formato não encaixar."""
+    try:
+        data = base64.b64decode(str(value), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not data or len(data) % 4:
+        return None
+    recs = []
+    for i in range(0, len(data), 4):
+        name, unit = ALARM_TYPES.get(data[i], (f"Tipo {data[i]}", ""))
+        recs.append({"t": data[i], "on": bool(data[i + 1]), "val": int.from_bytes(data[i + 2:i + 4], "big"),
+                     "name": name, "unit": unit})
+    return recs
+
+
+def _build_alarm(recs):
+    return base64.b64encode(b"".join(
+        bytes([r["t"], 1 if r["on"] else 0]) + r["val"].to_bytes(2, "big") for r in recs)).decode()
+
+
+async def _alarm_forms(request, dev_id, msg="", err=False):
+    try:
+        st = await tuya.status(dev_id)
+        e = None
+    except TuyaError as ex:
+        st, e = [], str(ex)
+    alarms = [{"code": x["code"], "recs": r} for x in st
+              if x["code"].startswith("alarm_set") and (r := _parse_alarm(x["value"]))]
+    return templates.TemplateResponse(request, "_alarms.html", {
+        "alarms": alarms, "dev_id": dev_id, "msg": msg or e or "", "err": err or bool(e)})
+
+
+@app.get("/device/{dev_id}/alarms", response_class=HTMLResponse)
+async def alarms(request: Request, dev_id: str):
+    get_device(dev_id)
+    return await _alarm_forms(request, dev_id)
+
+
+@app.post("/device/{dev_id}/alarms/{code}", response_class=HTMLResponse)
+async def alarms_set(request: Request, dev_id: str, code: str):
+    get_device(dev_id)
+    if not code.startswith("alarm_set"):
+        raise HTTPException(400, "Código inválido")
+    form = await request.form()
+    try:
+        recs = []
+        for t in form.getlist("order"):
+            val = int(float(str(form.get(f"v_{t}", "0")).replace(",", ".")))
+            if not 0 <= val <= 65535:
+                raise ValueError(f"valor fora do intervalo (0–65535) no tipo {t}")
+            recs.append({"t": int(t), "on": f"on_{t}" in form, "val": val})
+        if not recs:
+            raise ValueError("sem registos")
+        await tuya.send(dev_id, [{"code": code, "value": _build_alarm(recs)}])
+    except (ValueError, TuyaError) as e:
+        return await _alarm_forms(request, dev_id, f"Erro: {e}", err=True)
+    await asyncio.sleep(1.5)  # dar tempo ao dispositivo para reportar o novo valor
+    return await _alarm_forms(request, dev_id, f"{code} enviado.")
+
+
 def _scaled(code, value, spec_items):
+    for it in spec_items:
+        if it["code"] == code and it.get("type") == "Raw":
+            return _raw(code, value)
     for it in spec_items:
         if it["code"] == code and isinstance(value, (int, float)) and not isinstance(value, bool):
             v = _values(it)

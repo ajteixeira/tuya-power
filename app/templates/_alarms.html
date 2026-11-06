@@ -1,0 +1,16 @@
+{% if msg %}<p class="{{ 'err' if err else 'ok' }}">{{ msg }}</p>{% endif %}
+{% for a in alarms %}
+<form class="alr" hx-post="/device/{{ dev_id }}/alarms/{{ a.code }}" hx-target="#alarms" hx-swap="innerHTML"
+      hx-confirm="Enviar estes limites ao disjuntor ({{ a.code }})?">
+  <h4>{{ a.code }}</h4>
+  {% for r in a.recs %}
+  <div class="alr-row">
+    <input type="hidden" name="order" value="{{ r.t }}">
+    <span class="alr-name">{{ r.name }}</span>
+    <span class="alr-val"><input type="number" name="v_{{ r.t }}" value="{{ r.val }}" min="0" max="65535" step="1"> {{ r.unit }}</span>
+    <label class="alr-on"><input type="checkbox" name="on_{{ r.t }}" {{ 'checked' if r.on }}> Cortar o disjuntor</label>
+  </div>{% endfor %}
+  <button>Aplicar {{ a.code }}</button>
+</form>
+{% else %}<p class="mut">Este dispositivo não tem alarmes configuráveis.</p>{% endfor %}
+{% if alarms %}<p class="hint">Potência alta: a unidade/escala do valor ainda não está confirmada (a app mostra kW). Tipos desconhecidos são enviados tal como estão.</p>{% endif %}
