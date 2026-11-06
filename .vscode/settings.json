@@ -1,4 +1,5 @@
 {
   "python.defaultInterpreterPath": "/mnt/storage1/conda/envs/tuya-power/bin/python",
-  "python.terminal.activateEnvironment": false
+  "python.terminal.activateEnvironment": false,
+  "python.terminal.useEnvFile": true
 }

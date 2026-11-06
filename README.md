@@ -30,28 +30,27 @@ data/tuya.db           base de dados (criada automaticamente)
 
 ## Criar o projeto Cloud na plataforma Tuya
 
-Os nomes dos menus podem variar ligeiramente consoante a versão da consola da Tuya.
+No menu *Cloud* da consola existem três opções: *Project Management* (criar e gerir projetos, credenciais e dispositivos), *Cloud Services* (subscrição das APIs/serviços) e *API Explorer* (testes). Os nomes podem variar ligeiramente consoante a versão da consola.
 
 1. **Conta de developer:** entre em <https://platform.tuya.com> (ou registe-se) com a conta de developer.
-2. **Criar o projeto:** *Cloud → Development → Create Cloud Project* e preencha:
+2. **Criar o projeto:** *Cloud → Project Management → Create Cloud Project* e preencha:
    - *Project Name*: por exemplo `tuya-power`;
    - *Industry*: `Smart Home`;
    - *Development Method*: `Smart Home`;
    - *Data Center*: **Central Europe** ou **Western Europe**, consoante os dispositivos. O centro de
      dados tem de ser o mesmo da conta da app, caso contrário os dispositivos não aparecem.
-     O endpoint correspondente (`openapi.tuyaeu.com` para Europa Ocidental) vai para `TUYA_ENDPOINT`.
-3. **Subscrever as APIs:** o assistente pede as APIs autorizadas. Se não o fizer, vá a
-   *Service API → Go to Authorize*. Subscreva (são gratuitas na versão de teste):
+     Endpoints: Central Europe `https://openapi.tuyaeu.com` (predefinição); Western Europe `https://openapi-weaz.tuya.com`. Vai para `TUYA_ENDPOINT`.
+3. **Subscrever as APIs:** o assistente pede as APIs a autorizar. Se não o fizer, abra o projeto em
+   *Cloud → Project Management*, separador *Service API*, ou use *Cloud → Cloud Services*. Subscreva (são gratuitas na versão de teste):
    - *Authorization Token Management*;
-   - *Device Status Notification*;
-   - *Device Log Query*;
-   - *Device Control*;
-   - *IoT Core* (inclui a gestão e a listagem de dispositivos).
+   - *IoT Core* (obrigatória: listagem, estado, especificações e comandos dos dispositivos);
+   - *Device Log Query* (só se existir como API separada na sua consola; é usada para o histórico).
+   *Device Status Notification* não é necessária: a aplicação consulta o estado por pedido (polling).
 4. **Associar a conta da app Tuya Smart / Smart Life:**
    - *Devices → Link App Account → Add App Account*;
    - na app, abra *Eu → ícone de leitura de QR code* e leia o código apresentado;
    - escolha o acesso *Automatic Link* e confirme. Os dispositivos da conta passam a surgir em *All Devices*.
-5. **Obter as credenciais:** em *Overview → Authorization Key* copie o **Access ID/Client ID** e o
+5. **Obter as credenciais:** em *Cloud → Project Management →* (o seu projeto) *→ Overview*, secção *Authorization Key* copie o **Access ID/Client ID** e o
    **Access Secret/Client Secret** para o `.env` (`TUYA_ACCESS_ID` e `TUYA_ACCESS_SECRET`).
 6. **Testar:** na consola, *Cloud → API Explorer* permite chamar, por exemplo,
    `GET /v1.0/devices/{device_id}/status` e confirmar que a conta responde antes de usar o site.
@@ -61,6 +60,9 @@ Os nomes dos menus podem variar ligeiramente consoante a versão da consola da T
 - **Subscrição de teste (Trial):** as APIs gratuitas podem expirar após algum tempo (historicamente
   1 a 6 meses) e têm de ser renovadas manualmente na consola. Quando expiram, a aplicação passa a
   devolver erros como `No permissions` (código `1106`) ou `API subscription expired`.
+- **`IoT Core service subscription has expired` (28841002):** a subscrição de teste do IoT Core expirou.
+  Em *Cloud → Cloud Services → IoT Core* use a opção de renovar/prolongar o período de teste
+  (*Extend Trial Period*) e confirme o formulário. Depois clique de novo em «Sincronizar agora».
 - **`sign invalid` (1004) ou `clientId is invalid` (1005):** credenciais erradas ou centro de dados
   diferente do endpoint configurado.
 - **`permission deny` (1106):** a API não está subscrita ou a conta da app não está associada ao projeto.
