@@ -164,12 +164,25 @@ Edite o `.env`:
 
 ## Execução
 
+**Em produção a aplicação corre no contentor** (ver abaixo) e usa-se em `http://<servidor>/power`.
+Não há nenhum site nem cron a correr diretamente no anfitrião: a sincronização de hora a hora é feita
+pelo contentor.
+
+Para desenvolvimento, sem contentor:
+
 ```bash
 ./run.sh        # http://<IP-da-máquina>:8080
 ```
 
 Na primeira vez, clicar em **Sincronizar agora** para listar os dispositivos e
 descarregar o histórico. O estado da última sincronização aparece na página inicial.
+
+**Atenção às duas bases de dados:** o contentor usa `/mnt/storage1/data/tuya-power/tuya.db`, e o
+`./run.sh` (e a depuração no VS Code) usam `data/tuya.db` no projeto, que **deixou de ser atualizada**.
+Quem corre em desenvolvimento vê, portanto, dados antigos. Para depurar com os dados reais, aponte
+`DB_PATH` para a base do contentor (cuidado: o contentor também escreve nela) ou copie-a primeiro.
+Não deixe o site de desenvolvimento a correr com `SYNC_IN_APP=true`/cron em paralelo com o contentor:
+seriam duas sincronizações a pedir à Tuya (que limita a frequência).
 
 ## Contentor (Docker)
 
@@ -182,7 +195,7 @@ sincronização de hora a hora corre **dentro do contentor** (agendador da próp
 | Imagem | `ghcr.io/ajteixeira/tuya-power:latest` (também se constrói localmente com `docker-compose build`) |
 | Porta | `127.0.0.1:8002` no anfitrião → `8080` no contentor (só o lighttpd lhe acede; mude com `PORT`) |
 | Dados | `/mnt/storage1/data/tuya-power` → `/app/data` (a base de dados `tuya.db`, fora do contentor) |
-| Configuração | o `.env` do projeto (`env_file`): credenciais Tuya, `WEB_USER`/`WEB_PASSWORD` |
+| Configuração | `/mnt/storage1/data/tuya-power/.env` (ao lado da base de dados; modo 600): credenciais Tuya, `WEB_USER`/`WEB_PASSWORD`, `SYNC_*`. A aplicação lê-o ao arrancar (`ENV_FILE=/app/data/.env`); as credenciais **não** ficam nas variáveis de ambiente do contentor |
 | Utilizador | `1000:1000` (variáveis `UID`/`GID`), para os ficheiros dos dados ficarem do utilizador |
 | Fuso | `TZ=Europe/Lisbon` |
 
@@ -191,6 +204,13 @@ docker-compose up -d --build     # constrói (ou, sem --build, usa a imagem) e a
 docker-compose logs -f           # registos
 docker-compose down              # pára (os dados ficam na pasta montada)
 ```
+
+**Alterar a configuração (por exemplo a palavra-passe):** edite `/mnt/storage1/data/tuya-power/.env` e
+reinicie o contentor, sem o recriar: `docker restart tuya-power`. Escreva os valores sem aspas nem
+espaços. O `.env` do projeto passa a servir só para o desenvolvimento sem contentor. Variáveis que o
+`docker-compose.yml` fixa (`DB_PATH`, `ENV_FILE`, `TZ`) não se mudam por este ficheiro. Montou-se a
+pasta inteira, e não só o ficheiro, para os editores que o substituem ao gravar não o desligarem do
+contentor.
 
 Com o `docker-compose` 1.29 (v1), recriar um contentor com uma imagem nova pode falhar com
 `KeyError: 'ContainerConfig'`; basta `docker-compose down && docker-compose up -d`.
@@ -203,7 +223,7 @@ python -c "import sqlite3;s=sqlite3.connect('data/tuya.db');d=sqlite3.connect('/
 ```
 
 Se o contentor arrancar sem base de dados, cria uma vazia e só recupera os últimos 7 dias da Tuya.
-Retire também o cron do anfitrião (`crontab -e`, apagar a linha do `cron_sync.sh`) para não haver
+Copie também o `.env` para a mesma pasta (`/mnt/storage1/data/tuya-power/.env`, com `SYNC_INTERVAL_MINUTES=60`). Retire também o cron do anfitrião (`crontab -e`, apagar a linha do `cron_sync.sh`) para não haver
 duas sincronizações.
 
 ### Publicar em /power (lighttpd)
@@ -308,6 +328,7 @@ Abra a pasta `tuya-power` como raiz do espaço de trabalho (o interpretador é
 
 As configurações escutam em `0.0.0.0`, logo o site fica acessível na rede local.
 Defina `WEB_PASSWORD` antes de depurar assim.
+A depuração usa `data/tuya.db` do projeto, não a base do contentor (ver «Execução»).
 
 ## Notas
 
