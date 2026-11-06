@@ -51,8 +51,12 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 .kvt td:first-child{width:55%}.kvt td .pill{align-self:auto}.kvt .mut{font-size:12px;margin-left:4px}
 [hidden]{display:none!important}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--bd);margin-bottom:14px;overflow-x:auto}
-.tab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--mut);padding:9px 14px;white-space:nowrap}
-.tab:hover{color:var(--fg)}.tab[aria-selected=true]{color:var(--fg);border-bottom-color:var(--acc);font-weight:600}
+.tab,.stab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--mut);padding:9px 14px;white-space:nowrap}
+.tab:hover,.stab:hover{color:var(--fg)}.tab[aria-selected=true],.stab[aria-selected=true]{color:var(--fg);border-bottom-color:var(--acc);font-weight:600}
+.stabs{display:inline-flex;gap:2px}
+.ptile{display:inline-flex;min-width:240px;align-items:flex-end;text-align:right}
+.pnav{display:inline-flex;align-items:center;gap:8px}.pnav button{height:34px;width:34px;padding:0;font-size:18px}
+.pnav button:disabled{opacity:.4;cursor:not-allowed}#plabel{min-width:170px;text-align:center;font-weight:600;text-transform:capitalize}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
 <header><a href="/">⚡ Tuya Power</a></header>

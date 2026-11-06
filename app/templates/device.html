@@ -37,9 +37,11 @@
 <div class="card tab-pane" id="tab-alarmes" hidden><div class="card-h"><h3>Alarmes e limites</h3><button type="button" class="edit-btn" data-target="#alarms"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="bt">Editar</span></button></div>
   <div id="alarms" hx-get="/device/{{ d.id }}/alarms" hx-trigger="load">a carregar…</div></div>
 
-<div class="card tab-pane" id="tab-historico" hidden><h3>Histórico (base de dados local)</h3>
+<div class="card tab-pane" id="tab-historico" hidden><div class="card-h"><h3>Histórico (base de dados local)</h3>
+  <div id="ptotal" class="tile ptile" hidden><span class="tl"></span><span class="tv"></span></div></div>
   <form class="inline" id="hf"><select id="code"></select>
-    <select id="days"><option value="1">24 h</option><option value="7" selected>7 dias</option><option value="30">30 dias</option><option value="365">1 ano</option></select></form>
+    <nav class="stabs" id="mode"><button type="button" class="stab" data-m="day" aria-selected="true">Dia</button><button type="button" class="stab" data-m="month" aria-selected="false">Mês</button><button type="button" class="stab" data-m="year" aria-selected="false">Ano</button></nav>
+    <div class="pnav"><button type="button" class="sec" id="prev" title="Anterior">‹</button><span id="plabel"></span><button type="button" class="sec" id="next" title="Seguinte">›</button></div></form>
   <p id="nochart" class="mut" hidden>Sem valores numéricos no histórico deste dispositivo.</p>
   <canvas id="ch" height="110"></canvas></div>
 
@@ -65,44 +67,68 @@
 <script>
 const id="{{ d.id }}";let chart;
 // Valor por período a partir de um contador acumulado: último valor de cada hora/dia/mês menos o do período anterior
-function deltas(pts,unit){
-  const key=d=>unit==='hour'?[d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()]:unit==='day'?[d.getFullYear(),d.getMonth(),d.getDate()]:[d.getFullYear(),d.getMonth()];
-  const start=a=>new Date(a[0],a[1],a[2]||1,a[3]||0).getTime();
+function deltas(pts,unit,sum){  // sum: os valores são incrementos (somar) em vez de um contador (diferença)
+  const key=d=>unit==='hour'?[d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()]:unit==='day'?[d.getFullYear(),d.getMonth(),d.getDate()]:unit==='month'?[d.getFullYear(),d.getMonth()]:[d.getFullYear()];
+  const start=a=>new Date(a[0],a[1]||0,a[2]||1,a[3]||0).getTime();
   const b=new Map();
   for(const p of pts){const k=key(new Date(p.x)).join('-');
-    if(!b.has(k))b.set(k,{x:start(key(new Date(p.x))),first:p.y,last:p.y});b.get(k).last=p.y;}
+    if(!b.has(k))b.set(k,{x:start(key(new Date(p.x))),first:p.y,last:p.y,sum:0});const v=b.get(k);v.last=p.y;v.sum+=p.y;}
+  if(sum)return [...b.values()].sort((a,c)=>a.x-c.x).map(v=>({x:v.x,y:Math.round(v.sum*1000)/1000}));
   const out=[];let prev=null;
   for(const v of [...b.values()].sort((a,c)=>a.x-c.x)){
     const d=prev===null?v.last-v.first:v.last-prev;prev=v.last;
     out.push({x:v.x,y:Math.round(Math.max(d,0)*1000)/1000});}
   return out;}
+// Dia / Mês / Ano com navegação: consumo por hora, por dia e por mês
+const st={mode:'day',anchor:new Date()},AGG={};
+function bounds(){const a=st.anchor,y=a.getFullYear(),m=a.getMonth(),d=a.getDate();
+  if(st.mode==='day')return{s:new Date(y,m,d),e:new Date(y,m,d+1),unit:'hour'};
+  if(st.mode==='month')return{s:new Date(y,m,1),e:new Date(y,m+1,1),unit:'day'};
+  return{s:new Date(y,0,1),e:new Date(y+1,0,1),unit:'month'};}
+function shift(n){const a=st.anchor,y=a.getFullYear(),m=a.getMonth(),d=a.getDate();
+  st.anchor=st.mode==='day'?new Date(y,m,d+n):st.mode==='month'?new Date(y,m+n,1):new Date(y+n,0,1);}
+function label(){const a=st.anchor;return st.mode==='day'?a.toLocaleDateString(undefined,{dateStyle:'full'})
+  :st.mode==='month'?a.toLocaleDateString(undefined,{month:'long',year:'numeric'}):String(a.getFullYear());}
 async function draw(){
   const sel=document.getElementById('code').value; if(!sel) return;
-  const [code,mode]=sel.split(':'),delta=mode==='delta';
-  const days=+document.getElementById('days').value;
-  const h=await (await fetch(`/device/${id}/history?code=${code}&days=${days}`)).json();
-  const unit=days<=1?'hour':days<=30?'day':'month';  // período de agregação (só nos valores por período)
-  const pts=delta?deltas(h.points,unit):h.points;
+  const [code,mode]=sel.split(':'),delta=mode==='delta';  // delta = barras de energia por período
+  const B=bounds(),unit=B.unit,s0=B.s.getTime(),e0=B.e.getTime();
+  document.getElementById('plabel').textContent=label();
+  document.getElementById('next').disabled=e0>Date.now();
+  document.querySelectorAll('#mode .stab').forEach(b=>b.setAttribute('aria-selected',b.dataset.m===st.mode));
+  const h=await (await fetch(`/device/${id}/history?code=${code}&since=${s0}&until=${e0}`)).json();
+  // consumo do 1.º período = último valor dele menos o último valor antes do intervalo
+  const pts=delta?deltas(h.before?[h.before,...h.points]:h.points,unit,AGG[sel]==='sum').filter(p=>p.x>=s0&&p.x<e0):h.points;
+  // Cartão com o total do período (soma das barras)
+  const pt=document.getElementById('ptotal');pt.hidden=!delta;
+  if(delta){const tot=pts.reduce((a,p)=>a+p.y,0),when={hour:'dia',day:'mês',month:'ano'}[unit];
+    pt.querySelector('.tl').textContent=document.getElementById('code').selectedOptions[0].textContent.replace(/ por período$/,'')+` no ${when}`+(e0>Date.now()?' (até agora)':'');
+    pt.querySelector('.tv').textContent=tot.toLocaleString(undefined,{maximumFractionDigits:2})+(h.unit?` ${h.unit}`:'');}
   chart?.destroy();
-  // Eixo simples: horas (HH:mm) em 24 h, dias (dd/mm) ou meses (mm/aaaa); sempre relógio de 24 horas
-  const axis=delta?unit:(days<=1?'hour':'day');
-  const fmt={hour:{hour:'2-digit',minute:'2-digit',hourCycle:'h23'},day:{day:'2-digit',month:'2-digit'},month:{month:'2-digit',year:'numeric'}}[axis];
+  const fmt={hour:{hour:'2-digit',minute:'2-digit',hourCycle:'h23'},day:{day:'2-digit'},month:{month:'short'}}[unit];
   const tick=v=>new Date(v).toLocaleString(undefined,fmt);
   const per={hour:'hora',day:'dia',month:'mês'}[unit];
-  const title=delta?`${document.getElementById('code').selectedOptions[0].textContent.replace('por período','por '+per)}`+(h.unit?` (${h.unit})`:''):(h.unit?`${h.label} (${h.unit})`:h.label);
+  const title=delta?document.getElementById('code').selectedOptions[0].textContent.replace('por período','por '+per)+(h.unit?` (${h.unit})`:'')
+                   :(h.unit?`${h.label} (${h.unit})`:h.label);
+  const tipFmt={hour:{dateStyle:'medium',timeStyle:'short',hourCycle:'h23'},day:{dateStyle:'full'},month:{month:'long',year:'numeric'}}[unit];
   chart=new Chart(document.getElementById('ch'),{type:delta?'bar':'line',
     data:{datasets:[delta?{label:title,data:pts,backgroundColor:'rgba(37,99,235,.55)',borderWidth:0}
                          :{label:code,data:pts,pointRadius:pts.length<40?3:0,borderWidth:1.5,stepped:true}]},
     options:{parsing:false,
-      scales:{y:{title:{display:true,text:title},beginAtZero:delta},x:{type:'time',offset:delta,time:{unit:axis},ticks:{maxRotation:0,autoSkipPadding:20,callback:(v,i,t)=>tick(t[i].value)}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>new Date(it[0].parsed.x).toLocaleString(undefined,delta?fmt:{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'})}}}}});
+      scales:{y:{title:{display:true,text:title},beginAtZero:delta},
+              x:{type:'time',min:s0,max:e0,offset:delta,time:{unit},ticks:{maxRotation:0,autoSkipPadding:12,callback:(v,i,t)=>tick(t[i].value)}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>new Date(it[0].parsed.x).toLocaleString(undefined,delta?tipFmt:{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'})}}}}});
 }
 (async()=>{const cs=await (await fetch(`/device/${id}/codes`)).json();
+  cs.forEach(c=>AGG[c.id]=c.agg);
   const s=document.getElementById('code');s.innerHTML=cs.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
   document.getElementById('nochart').hidden=cs.length>0;document.getElementById('hf').hidden=cs.length==0;
   const ids=cs.map(c=>c.id);
-  s.value=['cur_power','total_forward_energy','temp_current','va_temperature'].find(c=>ids.includes(c))||ids[0]||'';draw();})();
-document.getElementById('code').onchange=draw;document.getElementById('days').onchange=draw;
+  s.value=['cur_power','total_forward_energy:delta','temp_current','va_temperature'].find(c=>ids.includes(c))||ids[0]||'';draw();})();
+document.getElementById('code').onchange=draw;
+document.getElementById('mode').onclick=e=>{const b=e.target.closest('.stab');if(b){st.mode=b.dataset.m;draw();}};
+document.getElementById('prev').onclick=()=>{shift(-1);draw();};
+document.getElementById('next').onclick=()=>{shift(1);draw();};
 
 // «Outros parâmetros»: manter aberto/fechado entre atualizações do estado (e entre visitas)
 let moreOpen=false;try{moreOpen=localStorage.getItem('moreOpen')==='1';}catch(e){}

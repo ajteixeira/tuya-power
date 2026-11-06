@@ -241,7 +241,7 @@ async def device(request: Request, dev_id: str):
 
 LABELS = {
     "switch": "Interruptor", "switch_1": "Interruptor", "cur_power": "Potência", "cur_voltage": "Tensão",
-    "cur_current": "Corrente", "add_ele": "Energia acumulada", "total_forward_energy": "Energia total consumida",
+    "cur_current": "Corrente", "add_ele": "Energia (último incremento)", "total_forward_energy": "Energia total consumida",
     "reverse_energy_total": "Energia total injetada", "leakage_current": "Corrente de fuga",
     "temp_value": "Temperatura", "temp_current": "Temperatura", "va_temperature": "Temperatura",
     "va_humidity": "Humidade", "battery_percentage": "Bateria", "balance_energy": "Energia (saldo)",
@@ -301,7 +301,9 @@ async def command(dev_id: str, code: str = Form(...), value: str = Form(""), kin
 
 
 @app.get("/device/{dev_id}/history")
-async def history(dev_id: str, code: str, days: int = 7):
+async def history(dev_id: str, code: str, since: int, until: int | None = None):
+    """Pontos do intervalo [since, until) (ms, calculados pelo navegador no seu fuso) e o último
+    ponto anterior ao intervalo («before»), necessário para o consumo do primeiro período."""
     d = get_device(dev_id)
     funcs, stat = _spec(d)
     scale, unit = 0, ""
@@ -309,38 +311,45 @@ async def history(dev_id: str, code: str, days: int = 7):
         if it["code"] == code:
             v = _values(it)
             scale, unit = v.get("scale", 0), v.get("unit") or DEFAULT_UNITS.get(code, "")
-    since = int((time.time() - days * 86400) * 1000)
+    until = until if until is not None else int(time.time() * 1000) + 1
+    num = "(value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND value NOT GLOB '*[^0-9.eE+-]*'"
     with db.connect() as c:
-        rows = c.execute("""SELECT event_time t, value v FROM logs WHERE device_id=? AND code=?
-            AND event_time>=? ORDER BY event_time""", (dev_id, code, since)).fetchall()
-    pts = []
-    for r in rows:
-        try:
-            pts.append({"x": r["t"], "y": float(r["v"]) / 10 ** scale})
-        except ValueError:
-            pass
-    return JSONResponse({"points": pts, "unit": unit, "label": LABELS.get(code, code)})
+        rows = c.execute(f"""SELECT event_time t, value v FROM logs WHERE device_id=? AND code=?
+            AND event_time>=? AND event_time<? AND {num} ORDER BY event_time""",
+                         (dev_id, code, since, until)).fetchall()
+        prev = c.execute(f"""SELECT event_time t, value v FROM logs WHERE device_id=? AND code=?
+            AND event_time<? AND {num} ORDER BY event_time DESC LIMIT 1""", (dev_id, code, since)).fetchone()
+    pts = [{"x": r["t"], "y": float(r["v"]) / 10 ** scale} for r in rows]
+    before = {"x": prev["t"], "y": float(prev["v"]) / 10 ** scale} if prev else None
+    return JSONResponse({"points": pts, "before": before, "unit": unit, "label": LABELS.get(code, code)})
 
 
-# Contadores acumulados: além do total, oferece-se o consumo/injeção por período (hora, dia ou mês)
+# Energia por período (hora, dia ou mês). Há dois tipos de código:
+#  - contadores acumulados (total_forward_energy, reverse_energy_total): consumo = último valor do
+#    período menos o do período anterior;
+#  - incrementos (add_ele, «electricity added»): cada reporte é a energia consumida desde o anterior,
+#    logo o consumo do período é a SOMA dos valores (confirmado: bate com o integral de cur_power).
+COUNTER_TOTALS = {"total_forward_energy", "reverse_energy_total"}
 CUMULATIVE = {"total_forward_energy": "Energia consumida por período",
               "reverse_energy_total": "Energia injetada por período",
-              "add_ele": "Energia por período"}
+              "add_ele": "Energia consumida por período"}
 
 
 @app.get("/device/{dev_id}/codes")
 async def codes(dev_id: str):
     """Códigos com valores numéricos (os únicos que se podem desenhar no gráfico), com a etiqueta
-    a mostrar; os contadores acumulados ganham uma entrada «:delta» (valor por período)."""
+    a mostrar; os contadores de energia só se oferecem por período («:delta»), não o total."""
     with db.connect() as c:
         rows = c.execute("""SELECT DISTINCT code FROM logs WHERE device_id=? AND code IS NOT NULL
             AND (value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND value NOT GLOB '*[^0-9.eE+-]*'
             ORDER BY code""", (dev_id,)).fetchall()
     out = []
     for (code,) in rows:
-        out.append({"id": code, "label": LABELS.get(code, code)})
+        if code not in COUNTER_TOTALS:  # os totais acumulados não se oferecem como gráfico
+            out.append({"id": code, "label": LABELS.get(code, code)})
         if code in CUMULATIVE:
-            out.append({"id": code + ":delta", "label": CUMULATIVE[code]})
+            agg = "sum" if code == "add_ele" else "counter"
+            out.append({"id": code + ":delta", "label": CUMULATIVE[code], "agg": agg})
     return JSONResponse(out)
 
 

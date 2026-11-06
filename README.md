@@ -26,8 +26,17 @@ A página de cada dispositivo tem cinco separadores (guardados no endereço, por
 | **Estado** | Mosaicos com os valores principais (potência, tensão, corrente, energia, temperatura, humidade, bateria, fases A/B/C…), etiquetas Ligado/Desligado e a secção recolhida «Outros parâmetros» (mantém-se aberta ou fechada entre atualizações). |
 | **Configuração** | Controlos de cada função do dispositivo. |
 | **Alarmes** | Tabela editável dos limites do disjuntor (ver abaixo), com os valores brutos recolhidos. |
-| **Histórico** | Gráfico de um código numérico à escolha, com 24 h, 7 dias, 30 dias ou 1 ano; o eixo vertical mostra o nome e a unidade. |
+| **Histórico** | Gráfico de um código numérico à escolha (menu com nomes em português), com 24 h, 7 dias, 30 dias ou 1 ano; o eixo vertical mostra o nome e a unidade. Os contadores de energia têm também a série **por período** (ver abaixo). |
 | **Registos** | Tabela paginada de todos os registos gravados, com filtros. |
+
+**Energia por período:** para os contadores acumulados (`total_forward_energy`, `reverse_energy_total`
+e `add_ele`), o menu do gráfico oferece, além do total, «Energia consumida por período», «Energia
+injetada por período» e «Energia por período», desenhadas em barras. O período segue o intervalo
+escolhido: **hora** (24 h), **dia** (7 e 30 dias) ou **mês** (1 ano). Cada barra é o último valor do
+contador nesse período menos o do período anterior, calculado no navegador, na hora e no fuso do
+navegador; valores negativos (contador reposto a zero) contam como 0. O primeiro e o último
+período podem estar incompletos. Validado com o «Geral»: a soma das barras de 7 dias coincide com a
+diferença real dos totais.
 
 **Segurança dos comandos:** nos separadores *Configuração* e *Alarmes* há um botão vermelho
 **Editar** que desbloqueia todos os controlos do grupo; «Cancelar» repõe os valores e volta a
