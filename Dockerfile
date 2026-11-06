@@ -17,8 +17,9 @@ ENV PATH=/opt/env/bin:$PATH \
 WORKDIR /app
 EXPOSE 8080
 
+# Vivo = responde HTTP (401 por falta de credenciais também conta)
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s \
-  CMD python -c "import urllib.request,urllib.error,sys\ntry: urllib.request.urlopen('http://127.0.0.1:8080/', timeout=4)\nexcept urllib.error.HTTPError: pass\nexcept Exception: sys.exit(1)" || exit 1
+  CMD ["python", "-c", "import urllib.request as u, urllib.error as e, sys\ntry:\n u.urlopen('http://127.0.0.1:8080/', timeout=4)\nexcept e.HTTPError:\n pass\nexcept Exception:\n sys.exit(1)"]
 
 ENTRYPOINT []
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]

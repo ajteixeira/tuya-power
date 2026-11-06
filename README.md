@@ -192,6 +192,9 @@ docker-compose logs -f           # registos
 docker-compose down              # pára (os dados ficam na pasta montada)
 ```
 
+Com o `docker-compose` 1.29 (v1), recriar um contentor com uma imagem nova pode falhar com
+`KeyError: 'ContainerConfig'`; basta `docker-compose down && docker-compose up -d`.
+
 **Primeira instalação a partir de uma base existente:** copie a base para a pasta de dados com o
 `backup` do SQLite (cópia consistente, mesmo com a base em uso):
 
