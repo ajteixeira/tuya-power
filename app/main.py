@@ -243,11 +243,12 @@ LABELS = {
     "countdown_1": "Contagem decrescente", "fault": "Falhas", "relay_status": "Estado ao ligar",
     "light_mode": "Luz indicadora", "child_lock": "Bloqueio infantil", "cycle_time": "Ciclos",
     "random_time": "Aleatório", "overcharge_switch": "Corte por sobrecarga",
+    "humidity_value": "Humidade", "battery_state": "Bateria", "temp_unit_convert": "Unidade de temperatura",
     "phase_a": "Fase A", "phase_b": "Fase B", "phase_c": "Fase C", "switch_prepayment": "Pré-pagamento", "charge_energy": "Energia carregada",
 }
 MAIN = ["switch", "switch_1", "phase_a", "phase_b", "phase_c", "cur_power", "cur_voltage", "cur_current", "add_ele", "total_forward_energy",
         "reverse_energy_total", "leakage_current", "temp_value", "temp_current", "va_temperature",
-        "va_humidity", "battery_percentage", "balance_energy"]
+        "va_humidity", "humidity_value", "battery_percentage", "battery_state", "balance_energy"]
 
 
 @app.get("/device/{dev_id}/status", response_class=HTMLResponse)
@@ -317,9 +318,11 @@ async def history(dev_id: str, code: str, days: int = 7):
 
 @app.get("/device/{dev_id}/codes")
 async def codes(dev_id: str):
+    """Códigos com valores numéricos (os únicos que se podem desenhar no gráfico)."""
     with db.connect() as c:
-        rows = c.execute("SELECT DISTINCT code FROM logs WHERE device_id=? AND code IS NOT NULL ORDER BY code",
-                         (dev_id,)).fetchall()
+        rows = c.execute("""SELECT DISTINCT code FROM logs WHERE device_id=? AND code IS NOT NULL
+            AND (value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND value NOT GLOB '*[^0-9.eE+-]*'
+            ORDER BY code""", (dev_id,)).fetchall()
     return JSONResponse([r[0] for r in rows])
 
 

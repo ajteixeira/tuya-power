@@ -52,6 +52,52 @@ async def sync_device_logs(dev_id):
         await asyncio.sleep(0.5)
     with db.connect() as c:
         c.execute("INSERT OR REPLACE INTO sync_state VALUES(?,?)", (dev_id, last or end))
+        row = c.execute("SELECT spec FROM devices WHERE id=?", (dev_id,)).fetchone()
+    spec = json.loads(row[0]) if row and row[0] else {}
+    if spec.get("thing_model"):  # a API v1 só devolve online/offline: buscar os reportes pela v2
+        new += await sync_device_logs_v2(dev_id, [s["code"] for s in spec.get("status", [])], end)
+    return new
+
+
+async def snapshot_properties(dev_id):
+    """Grava o valor atual de cada propriedade com a hora do último reporte (sem duplicados)."""
+    res = await tuya.request("GET", f"/v2.0/cloud/thing/{dev_id}/shadow/properties")
+    new = 0
+    with db.connect() as c:
+        for p in res.get("properties", []):
+            cur = c.execute("""INSERT OR IGNORE INTO logs(device_id,event_time,event_type,code,value,event_from)
+                VALUES(?,?,?,?,?,?)""", (dev_id, p["time"], 7, p["code"], str(p["value"]), None))
+            new += cur.rowcount
+    return new
+
+
+async def sync_device_logs_v2(dev_id, codes, end):
+    key_state = dev_id + "#v2"  # janela própria: uma falha na v2 não adianta a da v1
+    with db.connect() as c:
+        r = c.execute("SELECT last_event_time FROM sync_state WHERE device_id=?", (key_state,)).fetchone()
+    start = (r[0] - 3600_000) if r else end - settings.sync_initial_days * 86400_000
+    new, last, key = 0, r[0] if r else 0, ""
+    while codes:
+        try:
+            res = await tuya.logs_v2(dev_id, codes, start, end, key)
+        except TuyaError as e:
+            if "40000303" not in str(e):
+                raise
+            # Alguns sensores não aceitam a consulta de reportes: guardar a última leitura (instantâneo)
+            return await snapshot_properties(dev_id)
+        rows = res.get("logs") or []
+        with db.connect() as c:
+            for l in rows:
+                cur = c.execute("""INSERT OR IGNORE INTO logs(device_id,event_time,event_type,code,value,event_from)
+                    VALUES(?,?,?,?,?,?)""", (dev_id, l["event_time"], 7, l.get("code"), str(l.get("value")), None))
+                new += cur.rowcount
+                last = max(last, l["event_time"])
+        if not res.get("has_more") or not rows:
+            break
+        key = res.get("last_row_key", "")
+        await asyncio.sleep(0.5)
+    with db.connect() as c:
+        c.execute("INSERT OR REPLACE INTO sync_state VALUES(?,?)", (key_state, last or end))
     return new
 
 

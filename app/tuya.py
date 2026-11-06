@@ -83,23 +83,64 @@ class TuyaClient:
             row_key = res.get("last_row_key", "")
 
     async def status(self, dev_id):
-        return await self.request("GET", f"/v1.0/devices/{dev_id}/status")
+        try:
+            return await self.request("GET", f"/v1.0/devices/{dev_id}/status")
+        except TuyaError as e:
+            if "(2003)" not in str(e):  # 2003: dispositivo sem conjunto de instruções padrão
+                raise
+        res = await self.request("GET", f"/v2.0/cloud/thing/{dev_id}/shadow/properties")
+        return [{"code": p["code"], "value": p["value"]} for p in res.get("properties", [])]
 
     async def info(self, dev_id):
         return await self.request("GET", f"/v1.0/devices/{dev_id}")
 
     async def specifications(self, dev_id):
-        return await self.request("GET", f"/v1.0/devices/{dev_id}/specifications")
+        try:
+            return await self.request("GET", f"/v1.0/devices/{dev_id}/specifications")
+        except TuyaError as e:
+            if "(2009)" not in str(e) and "(2003)" not in str(e):
+                raise
+        # Dispositivos com modelo de objetos (thing model): converter para o formato {functions, status}
+        res = await self.request("GET", f"/v2.0/cloud/thing/{dev_id}/model")
+        model = json.loads(res["model"]) if isinstance(res.get("model"), str) else res.get("model", {})
+        kinds = {"value": "Integer", "enum": "Enum", "bool": "Boolean", "string": "String", "raw": "Raw"}
+        funcs, stat = [], []
+        for svc in model.get("services", []):
+            for prop in svc.get("properties", []):
+                ts = prop.get("typeSpec", {})
+                values = {k: v for k, v in ts.items() if k != "type"}
+                item = {"code": prop["code"], "type": kinds.get(ts.get("type"), "String"),
+                        "values": json.dumps(values)}
+                mode = prop.get("accessMode", "ro")
+                if "r" in mode:
+                    stat.append(item)
+                if "w" in mode:
+                    funcs.append(item)
+        return {"functions": funcs, "status": stat, "thing_model": True}
 
     async def send(self, dev_id, commands):
-        return await self.request("POST", f"/v1.0/devices/{dev_id}/commands",
-                                  body={"commands": commands})
+        try:
+            return await self.request("POST", f"/v1.0/devices/{dev_id}/commands",
+                                      body={"commands": commands})
+        except TuyaError as e:
+            if "(2003)" not in str(e):
+                raise
+        # Thing model: propriedades enviadas como JSON em texto
+        props = {c["code"]: c["value"] for c in commands}
+        return await self.request("POST", f"/v2.0/cloud/thing/{dev_id}/shadow/properties/issue",
+                                  body={"properties": json.dumps(props)})
 
     async def logs(self, dev_id, start_ms, end_ms, row_key=""):
         return await self.request("GET", f"/v1.0/devices/{dev_id}/logs", {
             "type": "1,2,3,4,5,6,7,8,9,10", "start_time": start_ms, "end_time": end_ms,
             "query_type": 1, "size": 100, "start_row_key": row_key})
 
+
+    async def logs_v2(self, dev_id, codes, start_ms, end_ms, row_key=""):
+        """Reportes de valores (modelo de objetos): /v2.0/cloud/thing/{id}/report-logs."""
+        return await self.request("GET", f"/v2.0/cloud/thing/{dev_id}/report-logs", {
+            "codes": ",".join(codes), "start_time": start_ms, "end_time": end_ms,
+            "size": 100, "last_row_key": row_key})
 
 
 tuya = TuyaClient()
