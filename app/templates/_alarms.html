@@ -1,16 +1,21 @@
 {% if msg %}<p class="{{ 'err' if err else 'ok' }}">{{ msg }}</p>{% endif %}
-{% for a in alarms %}
-<form class="alr" hx-post="/device/{{ dev_id }}/alarms/{{ a.code }}" hx-target="#alarms" hx-swap="innerHTML"
-      hx-confirm="Enviar estes limites ao disjuntor ({{ a.code }})?">
-  <h4>{{ a.code }}</h4>
-  {% for r in a.recs %}
-  <div class="alr-row">
-    <input type="hidden" name="order" value="{{ r.t }}">
-    <span class="alr-name">{{ r.name }}</span>
-    <span class="alr-val"><input type="number" name="v_{{ r.t }}" value="{{ r.val }}" min="0" max="65535" step="1"> {{ r.unit }}</span>
-    <label class="alr-on"><input type="checkbox" name="on_{{ r.t }}" {{ 'checked' if r.on }}> Cortar o disjuntor</label>
-  </div>{% endfor %}
-  <button>Aplicar {{ a.code }}</button>
+{% if alarms %}
+<form class="alr" hx-post="/device/{{ dev_id }}/alarms" hx-target="#alarms" hx-swap="innerHTML"
+      hx-confirm="Enviar os limites alterados ao disjuntor?">
+<fieldset class="ctl blk" disabled>
+<table class="kvt"><tr><th>Alarme</th><th>Limite</th><th>Corte do disjuntor</th></tr>
+{% for a in alarms %}{% for r in a.recs %}<tr>
+  <td>{{ r.name }}<input type="hidden" name="order__{{ a.code }}" value="{{ r.t }}"></td>
+  <td><input type="number" name="v__{{ a.code }}__{{ r.t }}" value="{{ r.val }}" min="0" max="65535" step="1" class="alr-in"> {{ r.unit }}</td>
+  <td><label class="alr-on"><input type="checkbox" name="on__{{ a.code }}__{{ r.t }}" {{ 'checked' if r.on }}>
+    <span class="pill {{ 'p-on' if r.on else 'p-off' }}">{{ 'Ativo' if r.on else 'Inativo' }}</span></label></td>
+</tr>{% endfor %}{% endfor %}</table>
+<p style="margin:10px 0 0"><button>Aplicar alterações</button></p>
+</fieldset>
 </form>
-{% else %}<p class="mut">Este dispositivo não tem alarmes configuráveis.</p>{% endfor %}
-{% if alarms %}<p class="hint">Potência alta: a unidade/escala do valor ainda não está confirmada (a app mostra kW). Tipos desconhecidos são enviados tal como estão.</p>{% endif %}
+<details class="more"><summary>Valores brutos ({{ raws|length }})</summary>
+  <table class="kvt"><tr><th>Código</th><th>Hexadecimal</th><th>Base64</th></tr>
+  {% for r in raws %}<tr><td>{{ r.code }}</td><td><code>{{ r.hex }}</code></td><td><code>{{ r.b64 }}</code></td></tr>{% endfor %}</table>
+</details>
+<p class="hint">Só são enviados os alarmes que tenham sido alterados. Potência alta: a unidade/escala do valor ainda não está confirmada (a app mostra kW). Tipos desconhecidos são enviados tal como estão.</p>
+{% else %}<p class="mut">Este dispositivo não tem alarmes configuráveis.</p>{% endif %}

@@ -91,6 +91,10 @@ def _raw(code, value):
     if not data:
         return str(value)
     txt = f"{data.hex(' ')}  ({value})"
+    if code in ("phase_a", "phase_b", "phase_c") and len(data) == 8:
+        # Formato padrão Tuya: tensão 0,1 V (2 B) · corrente mA (3 B) · potência W (3 B)
+        v, i, w = int.from_bytes(data[0:2], "big") / 10, int.from_bytes(data[2:5], "big"), int.from_bytes(data[5:8], "big")
+        return f"{v:g} V · {i / 1000:g} A · {w:g} W  [{txt}]"
     if code.startswith("alarm_set") and len(data) % 4 == 0:
         recs = []
         for i in range(0, len(data), 4):
@@ -130,8 +134,16 @@ async def _alarm_forms(request, dev_id, msg="", err=False):
         st, e = [], str(ex)
     alarms = [{"code": x["code"], "recs": r} for x in st
               if x["code"].startswith("alarm_set") and (r := _parse_alarm(x["value"]))]
+    raws = []
+    for x in st:
+        if x["code"].startswith("alarm_set"):
+            try:
+                hx = base64.b64decode(str(x["value"]), validate=True).hex(" ")
+            except (binascii.Error, ValueError):
+                hx = ""
+            raws.append({"code": x["code"], "b64": x["value"], "hex": hx})
     return templates.TemplateResponse(request, "_alarms.html", {
-        "alarms": alarms, "dev_id": dev_id, "msg": msg or e or "", "err": err or bool(e)})
+        "alarms": alarms, "raws": raws, "dev_id": dev_id, "msg": msg or e or "", "err": err or bool(e)})
 
 
 @app.get("/device/{dev_id}/alarms", response_class=HTMLResponse)
@@ -140,26 +152,38 @@ async def alarms(request: Request, dev_id: str):
     return await _alarm_forms(request, dev_id)
 
 
-@app.post("/device/{dev_id}/alarms/{code}", response_class=HTMLResponse)
-async def alarms_set(request: Request, dev_id: str, code: str):
+@app.post("/device/{dev_id}/alarms", response_class=HTMLResponse)
+async def alarms_set(request: Request, dev_id: str):
+    """Recebe a tabela inteira (campos order__<código>, v__<código>__<tipo>, on__<código>__<tipo>)
+    e só envia os alarm_set_* cujo valor mudou."""
     get_device(dev_id)
-    if not code.startswith("alarm_set"):
-        raise HTTPException(400, "Código inválido")
     form = await request.form()
     try:
-        recs = []
-        for t in form.getlist("order"):
-            val = int(float(str(form.get(f"v_{t}", "0")).replace(",", ".")))
-            if not 0 <= val <= 65535:
-                raise ValueError(f"valor fora do intervalo (0–65535) no tipo {t}")
-            recs.append({"t": int(t), "on": f"on_{t}" in form, "val": val})
-        if not recs:
-            raise ValueError("sem registos")
-        await tuya.send(dev_id, [{"code": code, "value": _build_alarm(recs)}])
+        current = {x["code"]: x["value"] for x in await tuya.status(dev_id)}
+        cmds = []
+        for code in dict.fromkeys(k.split("__", 1)[1] for k in form if k.startswith("order__")):
+            if not code.startswith("alarm_set"):
+                raise ValueError("código inválido")
+            recs = []
+            for t in form.getlist(f"order__{code}"):
+                val = int(float(str(form.get(f"v__{code}__{t}", "0")).replace(",", ".")))
+                if not 0 <= val <= 65535:
+                    raise ValueError(f"valor fora do intervalo (0–65535) em {code}, tipo {t}")
+                recs.append({"t": int(t), "on": f"on__{code}__{t}" in form, "val": val})
+            value = _build_alarm(recs)
+            if value != current.get(code):
+                cmds.append({"code": code, "value": value})
+        if not cmds:
+            return await _alarm_forms(request, dev_id, "Sem alterações.")
+        await tuya.send(dev_id, cmds)
     except (ValueError, TuyaError) as e:
         return await _alarm_forms(request, dev_id, f"Erro: {e}", err=True)
     await asyncio.sleep(1.5)  # dar tempo ao dispositivo para reportar o novo valor
-    return await _alarm_forms(request, dev_id, f"{code} enviado.")
+    return await _alarm_forms(request, dev_id, "Enviado: " + ", ".join(c["code"] for c in cmds) + ".")
+
+
+# A Tuya não declara a unidade de alguns códigos (add_ele é em kW·h, escala 3)
+DEFAULT_UNITS = {"add_ele": "kW·h"}
 
 
 def _scaled(code, value, spec_items):
@@ -170,7 +194,7 @@ def _scaled(code, value, spec_items):
         if it["code"] == code and isinstance(value, (int, float)) and not isinstance(value, bool):
             v = _values(it)
             val = value / 10 ** v.get("scale", 0)
-            return f"{val:g} {v.get('unit', '')}".strip()
+            return f"{val:g} {v.get('unit') or DEFAULT_UNITS.get(code, '')}".strip()
     return str(value)
 
 
@@ -210,6 +234,22 @@ async def device(request: Request, dev_id: str):
         "log_codes": codes, "log_types": [(t, EVENT_TYPES.get(t, "Tipo %s" % t)) for t in types]})
 
 
+LABELS = {
+    "switch": "Interruptor", "switch_1": "Interruptor", "cur_power": "Potência", "cur_voltage": "Tensão",
+    "cur_current": "Corrente", "add_ele": "Energia acumulada", "total_forward_energy": "Energia total consumida",
+    "reverse_energy_total": "Energia total injetada", "leakage_current": "Corrente de fuga",
+    "temp_value": "Temperatura", "temp_current": "Temperatura", "va_temperature": "Temperatura",
+    "va_humidity": "Humidade", "battery_percentage": "Bateria", "balance_energy": "Energia (saldo)",
+    "countdown_1": "Contagem decrescente", "fault": "Falhas", "relay_status": "Estado ao ligar",
+    "light_mode": "Luz indicadora", "child_lock": "Bloqueio infantil", "cycle_time": "Ciclos",
+    "random_time": "Aleatório", "overcharge_switch": "Corte por sobrecarga",
+    "phase_a": "Fase A", "phase_b": "Fase B", "phase_c": "Fase C", "switch_prepayment": "Pré-pagamento", "charge_energy": "Energia carregada",
+}
+MAIN = ["switch", "switch_1", "phase_a", "phase_b", "phase_c", "cur_power", "cur_voltage", "cur_current", "add_ele", "total_forward_energy",
+        "reverse_energy_total", "leakage_current", "temp_value", "temp_current", "va_temperature",
+        "va_humidity", "battery_percentage", "balance_energy"]
+
+
 @app.get("/device/{dev_id}/status", response_class=HTMLResponse)
 async def status(request: Request, dev_id: str):
     d = get_device(dev_id)
@@ -219,8 +259,23 @@ async def status(request: Request, dev_id: str):
         err = None
     except TuyaError as e:
         st, err = [], str(e)
-    items = [{"code": s["code"], "text": _scaled(s["code"], s["value"], stat + funcs)} for s in st]
-    return templates.TemplateResponse(request, "_status.html", {"items": items, "err": err})
+    main, other = [], []
+    for x in st:
+        code, val = x["code"], x["value"]
+        label = LABELS.get(code, code)
+        if code.startswith("alarm_set") and _parse_alarm(val):
+            continue  # mostrados no separador «Alarmes»
+        item = {"code": code, "label": label, "text": _scaled(code, val, stat + funcs),
+                "bool": val if isinstance(val, bool) else None, "is_switch": code.startswith("switch")}
+        if code in MAIN:
+            item["text"] = item["text"].split("  [", 1)[0] or "—"
+        elif not item["text"]:
+            item["text"] = "—"
+        (main if code in MAIN else other).append(item)
+    main.sort(key=lambda i: MAIN.index(i["code"]))
+    return templates.TemplateResponse(request, "_status.html", {
+        "main": main, "other": other, "err": err,
+        "now": datetime.now().strftime("%H:%M:%S")})
 
 
 @app.post("/device/{dev_id}/cmd", response_class=HTMLResponse)

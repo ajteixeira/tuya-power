@@ -32,8 +32,27 @@ button.sec{background:transparent;color:var(--fg);border-color:var(--bd);height:
 .hint{font-size:12px;color:var(--mut);margin:2px 0 10px}
 .alr{border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:10px}.alr h4{margin:0 0 8px;font-size:13px;color:var(--mut)}
 .alr-row{display:grid;grid-template-columns:minmax(130px,1.2fr) minmax(130px,1fr) auto;gap:10px;align-items:center;padding:5px 0;border-top:1px solid var(--bd)}
-.alr-row:first-of-type{border-top:0}.alr-name{font-weight:600}.alr-val input{width:90px}.alr-on{display:flex;gap:6px;align-items:center}
+.alr-row:first-of-type{border-top:0}.alr-name{font-weight:600}.alr-val input{width:90px}.alr-in{width:90px}.alr-on{display:flex;gap:6px;align-items:center}
 @media(max-width:560px){.alr-row{grid-template-columns:1fr}}
+fieldset.ctl{border:0;margin:0;padding:0;min-width:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+fieldset.ctl.blk{display:block}fieldset.ctl:disabled{opacity:.45}fieldset.ctl:disabled *{cursor:not-allowed}
+.cl{min-width:180px}.card-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.card-h h3{margin:0}
+.edit-btn{display:inline-flex;align-items:center;gap:6px;background:var(--err);border-color:var(--err);color:#fff;height:34px}
+.edit-btn.editing{background:transparent;color:var(--err)}.alr-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.alr-h h4{margin:0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.tile{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.tl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}.tv{font-size:22px;font-weight:600}
+.pill{display:inline-block;align-self:flex-start;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600}
+.p-on{background:rgba(34,197,94,.18);color:var(--ok)}.p-off{background:rgba(148,163,184,.2);color:var(--mut)}
+.sub{margin:14px 0 6px;font-size:12px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.chips li{background:var(--bg);border:1px solid var(--bd);border-radius:999px;padding:4px 12px;font-size:13px}
+details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut);font-size:13px}
+.kvt td:first-child{width:55%}.kvt td .pill{align-self:auto}.kvt .mut{font-size:12px;margin-left:4px}
+[hidden]{display:none!important}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--bd);margin-bottom:14px;overflow-x:auto}
+.tab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--mut);padding:9px 14px;white-space:nowrap}
+.tab:hover{color:var(--fg)}.tab[aria-selected=true]{color:var(--fg);border-bottom-color:var(--acc);font-weight:600}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
 <header><a href="/">⚡ Tuya Power</a></header>

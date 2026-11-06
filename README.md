@@ -12,6 +12,7 @@ histórico local completo, estado online, controlo, configuração e consulta de
 4. **Configuração:** as funções configuráveis declaradas pela Tuya surgem na mesma lista de controlos.
 5. **Histórico:** gráfico (24 h a 1 ano) e tabela paginada de registos/consumos, com filtros por
    data/hora, tipo, código (escolha múltipla) e valor mínimo/máximo.
+6. **Alarmes do disjuntor:** descodificação e edição dos limites (sobrecorrente, tensão, temperatura, potência).
 
 ## Estrutura
 
@@ -99,6 +100,44 @@ Edite o `.env`:
 
 Na primeira vez, clicar em **Sincronizar agora** para listar os dispositivos e
 descarregar o histórico. O estado da última sincronização aparece na página inicial.
+
+## Alarmes e limites do disjuntor (`alarm_set_*`)
+
+Nos disjuntores (categoria Tuya `dlq`), os limites de proteção vêm em dois datapoints do tipo
+**Raw** (`alarm_set_1` e `alarm_set_2`), enviados pela Tuya em base64. A Tuya não documenta o
+formato; foi deduzido e validado com as capturas da app Tuya Smart.
+
+Cada datapoint é uma sequência de registos de 4 bytes: `[tipo, corte, valor]`, com o valor em
+16 bits big-endian. O byte «corte» corresponde ao interruptor *Breaker tripping* da app.
+
+| Tipo | Alarme | Unidade | Estado |
+|---|---|---|---|
+| 1 | Sobrecorrente | A | confirmado |
+| 3 | Sobretensão | V | confirmado |
+| 4 | Subtensão | V | confirmado |
+| 5 | Temperatura alta | °C | confirmado |
+| 7 | Potência alta | kW | tipo confirmado; escala por confirmar |
+| 2, 6 | desconhecidos | – | mostrados como «Tipo N» |
+
+Exemplo: `AQEAEAMBAQkEAQBa` → `01 01 00 10 | 03 01 01 09 | 04 01 00 5a` →
+sobrecorrente 16 A, sobretensão 265 V e subtensão 90 V, todas com corte ativo.
+
+**Na interface:**
+- O estado e a tabela de registos mostram estes valores descodificados (por exemplo
+  `Sobretensão: 265 V · corte ativo`), com os bytes e o base64 originais entre parênteses retos.
+  Qualquer outro datapoint Raw é mostrado em hexadecimal, com o base64 original.
+- O cartão **Alarmes e limites** da página do dispositivo permite alterar o valor de cada alarme
+  e ligar/desligar o corte. «Aplicar» pede confirmação, volta a montar o base64 e envia o comando
+  `alarm_set_N`. Valores fora de 0–65535 são recusados. Os tipos desconhecidos são reenviados
+  tal como estão. Após o envio, o formulário volta a ler o estado do dispositivo.
+
+**Cuidados:**
+- Isto altera proteções reais do disjuntor. Experimente primeiro com uma alteração segura e
+  confirme na app Tuya Smart.
+- A unidade/escala da potência alta ainda não está confirmada.
+- Defina `WEB_PASSWORD`: sem ela, qualquer equipamento da rede pode alterar os limites.
+- Para outro modelo de disjuntor, os tipos podem ser diferentes; ajuste `ALARM_TYPES` em
+  `app/main.py`.
 
 ## Sincronização automática (cron)
 

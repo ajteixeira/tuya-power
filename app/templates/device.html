@@ -2,14 +2,24 @@
 {% block content %}
 <h2><span class="dot {{ 'on' if d.online }}"></span>{{ d.name }} <small class="mut">{{ d.product_name }}</small></h2>
 
-<div class="card"><h3>Estado</h3>
+<nav class="tabs" role="tablist">
+  <button type="button" class="tab" data-tab="estado">Estado</button>
+  <button type="button" class="tab" data-tab="controlo">Controlo e config</button>
+  <button type="button" class="tab" data-tab="alarmes">Alarmes</button>
+  <button type="button" class="tab" data-tab="historico">Histórico</button>
+  <button type="button" class="tab" data-tab="registos">Registos</button>
+</nav>
+
+<div class="card tab-pane" id="tab-estado"><h3>Estado</h3>
   <div hx-get="/device/{{ d.id }}/status" hx-trigger="load, every 5s">a carregar…</div></div>
 
-<div class="card"><h3>Controlo e configuração</h3>
+<div class="card tab-pane" id="tab-controlo" hidden><div class="card-h"><h3>Controlo e configuração</h3><button type="button" class="edit-btn" data-target="#ctl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="bt">Editar</span></button></div>
+<div id="ctl">
 {% for f in funcs if not (f.type == 'Raw' and f.code.startswith('alarm_set')) %}
-  <form class="inline" hx-post="/device/{{ d.id }}/cmd" hx-target="next .res" hx-swap="innerHTML">
+  <form class="inline cmd" hx-post="/device/{{ d.id }}/cmd" hx-target="next .res" hx-swap="innerHTML">
     <input type="hidden" name="code" value="{{ f.code }}"><input type="hidden" name="kind" value="{{ f.type }}">
-    <label style="min-width:180px">{{ f.code }}</label>
+    <label class="cl">{{ f.code }}</label>
+    <fieldset class="ctl" disabled>
     {% if f.type == 'Boolean' %}
       <button name="value" value="true">Ligar</button><button name="value" value="false" style="background:var(--err);border-color:var(--err)">Desligar</button>
     {% elif f.type == 'Enum' %}
@@ -19,18 +29,20 @@
     {% else %}
       <input name="value"><button>Aplicar</button>
     {% endif %}
+    </fieldset>
   </form><div class="res"></div>
-{% else %}<p class="mut">Sem funções disponíveis.</p>{% endfor %}</div>
+{% else %}<p class="mut">Sem funções disponíveis.</p>{% endfor %}
+</div></div>
 
-<div class="card"><h3>Alarmes e limites</h3>
+<div class="card tab-pane" id="tab-alarmes" hidden><div class="card-h"><h3>Alarmes e limites</h3><button type="button" class="edit-btn" data-target="#alarms"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="bt">Editar</span></button></div>
   <div id="alarms" hx-get="/device/{{ d.id }}/alarms" hx-trigger="load">a carregar…</div></div>
 
-<div class="card"><h3>Histórico (base de dados local)</h3>
+<div class="card tab-pane" id="tab-historico" hidden><h3>Histórico (base de dados local)</h3>
   <form class="inline" id="hf"><select id="code"></select>
     <select id="days"><option value="1">24 h</option><option value="7" selected>7 dias</option><option value="30">30 dias</option><option value="365">1 ano</option></select></form>
   <canvas id="ch" height="110"></canvas></div>
 
-<div class="card"><h3>Registos</h3>
+<div class="card tab-pane" id="tab-registos" hidden><h3>Registos</h3>
   <form id="lf" class="lf" hx-get="/device/{{ d.id }}/log" hx-target="#log" hx-trigger="change, submit, load">
     <div class="f"><label>Início</label><input type="datetime-local" name="start"></div>
     <div class="f"><label>Fim</label><input type="datetime-local" name="end"></div>
@@ -63,6 +75,24 @@ async function draw(){
   s.value=cs.includes('cur_power')?'cur_power':cs[0]||'';draw();})();
 document.getElementById('code').onchange=draw;document.getElementById('days').onchange=draw;
 
+// «Outros parâmetros»: manter aberto/fechado entre atualizações do estado (e entre visitas)
+let moreOpen=false;try{moreOpen=localStorage.getItem('moreOpen')==='1';}catch(e){}
+document.addEventListener('toggle',e=>{if(e.target.matches&&e.target.matches('details.more')){
+  moreOpen=e.target.open;try{localStorage.setItem('moreOpen',moreOpen?'1':'0');}catch(_){}}},true);
+document.addEventListener('htmx:afterSwap',e=>{const d=e.detail.target.querySelector('details.more');if(d&&d.open!==moreOpen)d.open=moreOpen;});
+// Segurança: controlos que enviam ordens ficam bloqueados até se carregar em «Editar»
+// (botão com data-target = grupo inteiro; sem data-target = o formulário que o contém)
+function setEdit(btn,on){
+  const scope=btn.dataset.target?document.querySelector(btn.dataset.target):btn.closest('form');
+  scope.querySelectorAll('fieldset.ctl').forEach(fs=>fs.disabled=!on);
+  if(!on){(scope.matches('form')?[scope]:scope.querySelectorAll('form')).forEach(f=>f.reset());}
+  btn.classList.toggle('editing',on);btn.querySelector('.bt').textContent=on?'Cancelar':'Editar';}
+document.addEventListener('click',e=>{const b=e.target.closest('.edit-btn');if(b)setEdit(b,!b.classList.contains('editing'));});
+// Depois de enviar alarmes, o conteúdo é substituído (já bloqueado): repor o botão
+document.addEventListener('htmx:afterSwap',e=>{if(e.detail.target.id==='alarms')
+  document.querySelectorAll('.edit-btn.editing[data-target="#alarms"]').forEach(b=>setEdit(b,false));});
+document.addEventListener('htmx:afterRequest',e=>{const f=e.detail.elt;
+  if(f&&f.matches&&f.matches('form.cmd'))document.querySelectorAll('.edit-btn.editing[data-target]').forEach(b=>setEdit(b,false));});
 // Resumo dos menus de seleção múltipla, limpar filtros e fechar ao clicar fora
 const lf=document.getElementById('lf');
 function sumDD(){lf.querySelectorAll('details.dd').forEach(d=>{
@@ -72,4 +102,14 @@ function sumDD(){lf.querySelectorAll('details.dd').forEach(d=>{
 lf.addEventListener('change',sumDD);
 document.getElementById('lreset').addEventListener('click',()=>setTimeout(()=>{sumDD();htmx.trigger(lf,'submit');}));
 document.addEventListener('click',e=>lf.querySelectorAll('details.dd[open]').forEach(d=>{if(!d.contains(e.target))d.open=false;}));
+// Separadores (guardados no endereço #...; o gráfico é redesenhado ao abrir «Histórico»)
+const TABS=['estado','controlo','alarmes','historico','registos'];
+function showTab(t){if(!TABS.includes(t))t='estado';
+  TABS.forEach(n=>{document.getElementById('tab-'+n).hidden=n!==t;});
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
+  try{history.replaceState(null,'','#'+t);localStorage.setItem('tab',t);}catch(e){}
+  if(t==='historico')draw();}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+let t0=location.hash.slice(1);if(!t0){try{t0=localStorage.getItem('tab')||'';}catch(e){}}
+showTab(t0);
 </script>{% endblock %}
