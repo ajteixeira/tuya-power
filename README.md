@@ -29,6 +29,17 @@ A página de cada dispositivo tem cinco separadores (guardados no endereço, por
 | **Histórico** | Gráfico de um código numérico à escolha (menu com nomes em português), com os separadores **Dia**, **Mês** e **Ano** e as setas `‹ ›` para navegar entre períodos. O eixo vertical mostra o nome e a unidade. Para a energia há barras por período e um cartão com o total (ver abaixo). |
 | **Registos** | Tabela paginada de todos os registos gravados, com filtros. |
 
+**Energia de hoje no Estado.** O separador *Estado* mostra o consumo (e, onde existe, a injeção) do dia
+corrente, desde as 00:00 no fuso do navegador (enviado em cada atualização):
+
+- **Contadores acumulados** (por exemplo o «Geral»): mosaicos «Energia consumida hoje» e «Energia
+  injetada hoje» = valor atual do contador (lido da Tuya em cada atualização, sem atraso) menos o
+  último valor gravado antes das 00:00. Se não houver nenhum valor anterior a hoje, parte-se da
+  primeira leitura de hoje. A «Energia (saldo)» (`balance_energy`) passou para «Outros parâmetros».
+- **Incrementos** (`add_ele`, por exemplo o «Termo acumulador Solar»): mosaico «Energia consumida
+  hoje (até HH:MM)» = soma dos incrementos gravados hoje. Vem da base local, por isso pode estar até
+  uma hora atrasado (a hora indicada é a do último registo).
+
 **Histórico: Dia, Mês e Ano.** Os separadores escolhem o período mostrado e as setas `‹ ›` passam ao
 anterior/seguinte (a seta seguinte fica desativada no futuro). O eixo mostra sempre o período
 inteiro, no fuso do navegador:
