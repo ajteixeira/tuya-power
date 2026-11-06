@@ -1,0 +1,16 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    tuya_access_id: str = ""
+    tuya_access_secret: str = ""
+    tuya_endpoint: str = "https://openapi.tuyaeu.com"
+    web_user: str = "admin"
+    web_password: str = ""
+    db_path: str = "data/tuya.db"
+    sync_hour: int = 3
+    sync_initial_days: int = 7
+
+
+settings = Settings()
