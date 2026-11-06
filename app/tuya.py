@@ -1,4 +1,5 @@
 """Cliente mínimo da Tuya Cloud OpenAPI (assinatura HMAC-SHA256, token em cache)."""
+import asyncio
 import hashlib
 import hmac
 import json
@@ -57,9 +58,15 @@ class TuyaClient:
             if qs:
                 path = f"{path}?{qs}"
         raw = json.dumps(body, separators=(",", ":")) if body is not None else ""
-        r = await self._http.request(method, path, content=raw or None,
-                                     headers=self._sign(method, path, raw, self._token))
-        data = r.json()
+        for attempt in range(6):
+            r = await self._http.request(method, path, content=raw or None,
+                                         headers=self._sign(method, path, raw, self._token))
+            data = r.json()
+            # 40000309: limite de frequência -> esperar e repetir
+            if data.get("code") == 40000309 and attempt < 5:
+                await asyncio.sleep(5 * 2 ** attempt)
+                continue
+            break
         if not data.get("success"):
             raise TuyaError(f"{data.get('msg')} ({data.get('code')})")
         return data.get("result")
@@ -92,6 +99,7 @@ class TuyaClient:
         return await self.request("GET", f"/v1.0/devices/{dev_id}/logs", {
             "type": "1,2,3,4,5,6,7,8,9,10", "start_time": start_ms, "end_time": end_ms,
             "query_type": 1, "size": 100, "start_row_key": row_key})
+
 
 
 tuya = TuyaClient()

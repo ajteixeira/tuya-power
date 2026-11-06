@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
@@ -36,13 +36,20 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app):
     db.init()
-    scheduler.add_job(run_sync, "cron", hour=settings.sync_hour, minute=0, id="daily")
-    scheduler.start()
+    if settings.sync_in_app:
+        scheduler.add_job(run_sync, "cron", hour=settings.sync_hour, minute=0, id="daily")
+        scheduler.start()
     yield
-    scheduler.shutdown()
+    if scheduler.running:
+        scheduler.shutdown()
 
 
 app = FastAPI(lifespan=lifespan, dependencies=[Depends(auth)])
+
+
+EVENT_TYPES = {1: "Online", 2: "Offline", 3: "Ativação", 4: "Reposição", 5: "Comando enviado",
+               6: "Atualização de firmware", 7: "Reporte de valores", 8: "Sinal do dispositivo",
+               9: "Reinício", 10: "Temporização"}
 
 
 def _dt(ms):
@@ -99,8 +106,14 @@ async def sync_now():
 async def device(request: Request, dev_id: str):
     d = get_device(dev_id)
     funcs, _ = _spec(d)
+    with db.connect() as c:
+        codes = [r[0] for r in c.execute(
+            "SELECT DISTINCT code FROM logs WHERE device_id=? AND code IS NOT NULL ORDER BY code", (dev_id,))]
+        types = [r[0] for r in c.execute(
+            "SELECT DISTINCT event_type FROM logs WHERE device_id=? AND event_type IS NOT NULL ORDER BY 1", (dev_id,))]
     return templates.TemplateResponse(request, "device.html", {
-        "d": d, "funcs": [dict(f, vals=_values(f)) for f in funcs]})
+        "d": d, "funcs": [dict(f, vals=_values(f)) for f in funcs],
+        "log_codes": codes, "log_types": [(t, EVENT_TYPES.get(t, "Tipo %s" % t)) for t in types]})
 
 
 @app.get("/device/{dev_id}/status", response_class=HTMLResponse)
@@ -162,21 +175,48 @@ async def codes(dev_id: str):
 
 
 @app.get("/device/{dev_id}/log", response_class=HTMLResponse)
-async def log(request: Request, dev_id: str, code: str = "", page: int = 0):
+async def log(request: Request, dev_id: str, page: int = 0, start: str = "", end: str = "",
+              vmin: str = "", vmax: str = "", types: list[int] = Query([]),
+              codes: list[str] = Query([])):
     d = get_device(dev_id)
     funcs, stat = _spec(d)
-    q, args = "SELECT * FROM logs WHERE device_id=?", [dev_id]
-    if code:
-        q += " AND code=?"
-        args.append(code)
-    q += " ORDER BY event_time DESC LIMIT 101 OFFSET ?"
-    args.append(page * 100)
+    where, args = ["device_id=?"], [dev_id]
+    for val, op in ((start, ">="), (end, "<=")):
+        if val:
+            try:
+                ms = int(datetime.fromisoformat(val).timestamp() * 1000)
+            except ValueError:
+                continue
+            where.append(f"event_time{op}?")
+            args.append(ms + (59_999 if op == "<=" and len(val) <= 16 else 0))
+    if types:
+        where.append(f"event_type IN ({','.join('?' * len(types))})")
+        args += types
+    if codes:
+        where.append(f"code IN ({','.join('?' * len(codes))})")
+        args += codes
+    # Mínimo/máximo aplicados ao valor já com escala (o que é mostrado); só valores numéricos
+    scales = {it["code"]: _values(it).get("scale", 0) for it in stat + funcs
+              if _values(it).get("scale")}
+    scaled = "CAST(value AS REAL)"
+    if scales:
+        scaled += "/CASE code " + " ".join(f"WHEN ? THEN {10 ** v}" for v in scales.values()) + " ELSE 1 END"
+    for val, op in ((vmin, ">="), (vmax, "<=")):
+        try:
+            num = float(val.replace(",", "."))
+        except ValueError:
+            continue
+        where.append(f"(value GLOB '[0-9]*' OR value GLOB '-[0-9]*') AND {scaled}{op}?")
+        args += list(scales) + [num]
+    w = " AND ".join(where)
     with db.connect() as c:
-        rows = c.execute(q, args).fetchall()
-    out = [{"t": r["event_time"], "type": r["event_type"], "code": r["code"],
-            "text": _scaled(r["code"], _num(r["value"]), stat + funcs)} for r in rows[:100]]
+        total = c.execute(f"SELECT COUNT(*) FROM logs WHERE {w}", args).fetchone()[0]
+        rows = c.execute(f"SELECT * FROM logs WHERE {w} ORDER BY event_time DESC LIMIT 100 OFFSET ?",
+                         args + [page * 100]).fetchall()
+    out = [{"t": r["event_time"], "type": EVENT_TYPES.get(r["event_type"], r["event_type"]),
+            "code": r["code"], "text": _scaled(r["code"], _num(r["value"]), stat + funcs)} for r in rows]
     return templates.TemplateResponse(request, "_log.html", {
-        "rows": out, "more": len(rows) > 100, "page": page, "code": code, "dev_id": dev_id})
+        "rows": out, "total": total, "page": page, "more": (page + 1) * 100 < total, "dev_id": dev_id})
 
 
 def _num(v):

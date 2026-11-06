@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     web_password: str = ""
     db_path: str = "data/tuya.db"
     sync_hour: int = 3
+    sync_in_app: bool = True  # False se a sincronização for feita por cron
     sync_initial_days: int = 7
 
 

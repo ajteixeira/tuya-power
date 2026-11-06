@@ -18,6 +18,18 @@ button,select,input{font:inherit;padding:5px 9px;border:1px solid var(--bd);bord
 button{cursor:pointer;background:var(--acc);color:#fff;border-color:var(--acc)}
 table{width:100%;border-collapse:collapse}td,th{padding:4px 8px;border-bottom:1px solid var(--bd);text-align:left}
 .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}.kv b{display:block;font-size:20px}
+form.lf{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 12px;align-items:end;margin-bottom:6px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0;position:relative}
+.f>label{font-size:12px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.f input[type=text],.f input[type=datetime-local],.dd summary{width:100%;box-sizing:border-box;height:34px;padding:0 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg)}
+.f input:focus,.dd[open] summary{outline:2px solid var(--acc);outline-offset:-1px}
+.dd summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dd summary::-webkit-details-marker{display:none}.dd summary::after{content:"▾";color:var(--mut);margin-left:8px}
+.dd .panel{position:absolute;z-index:10;top:100%;left:0;right:0;margin-top:4px;max-height:240px;overflow:auto;background:var(--card);border:1px solid var(--bd);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.18);padding:6px}
+.dd .panel label{display:flex;gap:8px;align-items:center;padding:5px 6px;border-radius:5px;cursor:pointer;font-size:14px}
+.dd .panel label:hover{background:var(--bg)}
+button.sec{background:transparent;color:var(--fg);border-color:var(--bd);height:34px}button.sec:hover{background:var(--bg)}
+.hint{font-size:12px;color:var(--mut);margin:2px 0 10px}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
 <header><a href="/">⚡ Tuya Power</a></header>

@@ -28,10 +28,24 @@
   <canvas id="ch" height="110"></canvas></div>
 
 <div class="card"><h3>Registos</h3>
-  <div id="log" hx-get="/device/{{ d.id }}/log" hx-trigger="load">…</div></div>
+  <form id="lf" class="lf" hx-get="/device/{{ d.id }}/log" hx-target="#log" hx-trigger="change, submit, load">
+    <div class="f"><label>Início</label><input type="datetime-local" name="start"></div>
+    <div class="f"><label>Fim</label><input type="datetime-local" name="end"></div>
+    <div class="f"><label>Tipo</label>
+      <details class="dd"><summary data-all="Todos">Todos</summary>
+        <div class="panel">{% for v, n in log_types %}<label><input type="checkbox" name="types" value="{{ v }}"> {{ n }}</label>{% endfor %}</div></details></div>
+    <div class="f"><label>Código</label>
+      <details class="dd"><summary data-all="Todos">Todos</summary>
+        <div class="panel">{% for c in log_codes %}<label><input type="checkbox" name="codes" value="{{ c }}"> {{ c }}</label>{% endfor %}</div></details></div>
+    <div class="f"><label>Valor mínimo</label><input type="text" inputmode="decimal" name="vmin" placeholder="mín."></div>
+    <div class="f"><label>Valor máximo</label><input type="text" inputmode="decimal" name="vmax" placeholder="máx."></div>
+    <div class="f act"><button type="reset" class="sec" id="lreset">Limpar filtros</button></div>
+  </form>
+  <p class="hint">Mínimo/máximo aplicam-se ao valor mostrado (com escala) e só a valores numéricos.</p>
+  <div id="log">…</div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 const id="{{ d.id }}";let chart;
 async function draw(){
@@ -40,10 +54,19 @@ async function draw(){
   chart?.destroy();
   chart=new Chart(document.getElementById('ch'),{type:'line',data:{datasets:[{label:code,data:pts,pointRadius:0,borderWidth:1.5,stepped:true}]},
     options:{parsing:false,scales:{x:{type:'time'}}}});
-  htmx.ajax('GET',`/device/${id}/log?code=${code}`,'#log');
 }
 (async()=>{const cs=await (await fetch(`/device/${id}/codes`)).json();
   const s=document.getElementById('code');s.innerHTML=cs.map(c=>`<option>${c}</option>`).join('');
   s.value=cs.includes('cur_power')?'cur_power':cs[0]||'';draw();})();
 document.getElementById('code').onchange=draw;document.getElementById('days').onchange=draw;
+
+// Resumo dos menus de seleção múltipla, limpar filtros e fechar ao clicar fora
+const lf=document.getElementById('lf');
+function sumDD(){lf.querySelectorAll('details.dd').forEach(d=>{
+  const on=[...d.querySelectorAll('input:checked')].map(i=>i.parentNode.textContent.trim());
+  const sm=d.querySelector('summary');
+  sm.textContent=on.length==0?sm.dataset.all:on.length<=2?on.join(', '):on.length+' selecionados';});}
+lf.addEventListener('change',sumDD);
+document.getElementById('lreset').addEventListener('click',()=>setTimeout(()=>{sumDD();htmx.trigger(lf,'submit');}));
+document.addEventListener('click',e=>lf.querySelectorAll('details.dd[open]').forEach(d=>{if(!d.contains(e.target))d.open=false;}));
 </script>{% endblock %}

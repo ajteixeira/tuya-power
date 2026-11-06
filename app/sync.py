@@ -49,6 +49,7 @@ async def sync_device_logs(dev_id):
         if not res.get("has_next") or not rows:
             break
         key = res.get("next_row_key", "")
+        await asyncio.sleep(0.5)
     with db.connect() as c:
         c.execute("INSERT OR REPLACE INTO sync_state VALUES(?,?)", (dev_id, last or end))
     return new
@@ -58,12 +59,17 @@ async def run_sync():
     if _lock.locked():
         return
     async with _lock:
-        started, total, err = int(time.time()), 0, None
+        started, total, errs = int(time.time()), 0, []
         try:
-            for dev_id in await sync_devices():
-                total += await sync_device_logs(dev_id)
+            dev_ids = await sync_devices()
         except Exception as e:  # registar e continuar o agendador
-            err = str(e)
+            dev_ids, errs = [], [str(e)]
+        for dev_id in dev_ids:  # um dispositivo com erro não bloqueia os outros
+            try:
+                total += await sync_device_logs(dev_id)
+            except Exception as e:
+                errs.append(f"{dev_id}: {e}")
+        err = "; ".join(errs) or None
         with db.connect() as c:
             c.execute("INSERT INTO sync_runs(started,finished,new_rows,error) VALUES(?,?,?,?)",
                       (started, int(time.time()), total, err))
