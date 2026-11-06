@@ -13,7 +13,7 @@ histórico local completo, estado online, controlo, configuração e consulta de
 4. **Configuração:** as funções configuráveis declaradas pela Tuya.
 5. **Alarmes do disjuntor:** descodificação e edição dos limites (sobrecorrente, tensão,
    temperatura, potência).
-6. **Histórico e registos:** gráfico (24 h a 1 ano) e tabela paginada de registos/consumos, com
+6. **Histórico e registos:** gráfico por dia, mês ou ano (com navegação) e tabela paginada de registos/consumos, com
    filtros por data/hora, tipo, código (escolha múltipla) e valor mínimo/máximo.
 
 ## Interface
@@ -26,17 +26,40 @@ A página de cada dispositivo tem cinco separadores (guardados no endereço, por
 | **Estado** | Mosaicos com os valores principais (potência, tensão, corrente, energia, temperatura, humidade, bateria, fases A/B/C…), etiquetas Ligado/Desligado e a secção recolhida «Outros parâmetros» (mantém-se aberta ou fechada entre atualizações). |
 | **Configuração** | Controlos de cada função do dispositivo. |
 | **Alarmes** | Tabela editável dos limites do disjuntor (ver abaixo), com os valores brutos recolhidos. |
-| **Histórico** | Gráfico de um código numérico à escolha (menu com nomes em português), com 24 h, 7 dias, 30 dias ou 1 ano; o eixo vertical mostra o nome e a unidade. Os contadores de energia têm também a série **por período** (ver abaixo). |
+| **Histórico** | Gráfico de um código numérico à escolha (menu com nomes em português), com os separadores **Dia**, **Mês** e **Ano** e as setas `‹ ›` para navegar entre períodos. O eixo vertical mostra o nome e a unidade. Para a energia há barras por período e um cartão com o total (ver abaixo). |
 | **Registos** | Tabela paginada de todos os registos gravados, com filtros. |
 
-**Energia por período:** para os contadores acumulados (`total_forward_energy`, `reverse_energy_total`
-e `add_ele`), o menu do gráfico oferece, além do total, «Energia consumida por período», «Energia
-injetada por período» e «Energia por período», desenhadas em barras. O período segue o intervalo
-escolhido: **hora** (24 h), **dia** (7 e 30 dias) ou **mês** (1 ano). Cada barra é o último valor do
-contador nesse período menos o do período anterior, calculado no navegador, na hora e no fuso do
-navegador; valores negativos (contador reposto a zero) contam como 0. O primeiro e o último
-período podem estar incompletos. Validado com o «Geral»: a soma das barras de 7 dias coincide com a
-diferença real dos totais.
+**Histórico: Dia, Mês e Ano.** Os separadores escolhem o período mostrado e as setas `‹ ›` passam ao
+anterior/seguinte (a seta seguinte fica desativada no futuro). O eixo mostra sempre o período
+inteiro, no fuso do navegador:
+
+| Separador | Período | Barras de energia |
+|---|---|---|
+| **Dia** | o dia escolhido (00:00–24:00) | por **hora** |
+| **Mês** | o mês escolhido | por **dia** |
+| **Ano** | o ano escolhido | por **mês** |
+
+Os outros códigos (potência, tensão, temperatura…) usam os mesmos separadores, em linha.
+
+**Energia por período.** Para os códigos de energia o menu oferece «Energia consumida por período» e
+«Energia injetada por período», desenhadas em barras. Os totais acumulados (`total_forward_energy`,
+`reverse_energy_total`) não se oferecem como gráfico: aparecem só no separador *Estado*. Há dois tipos
+de código, com cálculos diferentes:
+
+- **Contadores acumulados** (`total_forward_energy`, `reverse_energy_total`): cada barra é o último
+  valor do contador nesse período menos o do período anterior. O servidor devolve também o último
+  ponto anterior ao intervalo, para o primeiro período ter o consumo certo.
+- **Incrementos** (`add_ele`, «electricity added»): cada valor reportado é a energia consumida desde
+  o reporte anterior (não é um total), por isso cada barra é a **soma** dos valores do período.
+  Confirmado com o «Termo acumulador Solar»: a soma diária coincide, dentro de ~1 %, com o integral
+  da potência instantânea (`cur_power`). Por isso o `add_ele` aparece no Estado e no menu como
+  «Energia (último incremento)».
+
+Um **cartão** no canto superior direito do painel mostra o **total do período** (soma das barras),
+por exemplo «Energia consumida no dia (até agora): 16,12 kW·h»; fica escondido nas séries que não são
+de energia. O primeiro período pode estar incompleto (a base local só tem histórico desde a primeira
+sincronização) e, se o serviço estiver parado, o consumo desse intervalo fica todo na 1.ª barra
+seguinte.
 
 **Segurança dos comandos:** nos separadores *Configuração* e *Alarmes* há um botão vermelho
 **Editar** que desbloqueia todos os controlos do grupo; «Cancelar» repõe os valores e volta a
