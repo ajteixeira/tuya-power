@@ -1,5 +1,5 @@
 <p class="mut">{{ total }} registos{% if total > 100 %} · página {{ page+1 }} de {{ ((total-1)//100)+1 }}{% endif %}</p>
 <table><tr><th>Data/hora</th><th>Tipo</th><th>Código</th><th>Valor</th></tr>
 {% for r in rows %}<tr><td>{{ r.t|dt }}</td><td>{{ r.type }}</td><td>{{ r.code }}</td><td>{{ r.text }}</td></tr>{% endfor %}</table>
-<p>{% if page>0 %}<a href="#" hx-get="/device/{{ dev_id }}/log" hx-include="#lf" hx-vals='{"page": {{ page-1 }}}' hx-target="#log">← anteriores</a>{% endif %}
-{% if more %} <a href="#" hx-get="/device/{{ dev_id }}/log" hx-include="#lf" hx-vals='{"page": {{ page+1 }}}' hx-target="#log">seguintes →</a>{% endif %}</p>
+<p>{% if page>0 %}<a href="#" hx-get="{{ P(request) }}/device/{{ dev_id }}/log" hx-include="#lf" hx-vals='{"page": {{ page-1 }}}' hx-target="#log">← anteriores</a>{% endif %}
+{% if more %} <a href="#" hx-get="{{ P(request) }}/device/{{ dev_id }}/log" hx-include="#lf" hx-vals='{"page": {{ page+1 }}}' hx-target="#log">seguintes →</a>{% endif %}</p>

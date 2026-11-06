@@ -1,13 +1,13 @@
 {% extends "base.html" %}{% block content %}
 <div class="card">
-  <form hx-post="/sync" hx-swap="outerHTML" hx-indicator="#sp" class="inline">
+  <form hx-post="{{ P(request) }}/sync" hx-swap="outerHTML" hx-indicator="#sp" class="inline">
     <button>Sincronizar agora</button><span id="sp" class="htmx-indicator mut">a sincronizar…</span>
     <span class="mut">{% if run %}Última: {{ (run.finished*1000)|dt }} · {{ run.new_rows }} novos registos{% if run.error %} · <span class="err">{{ run.error }}</span>{% endif %}{% else %}Ainda sem sincronização.{% endif %}</span>
   </form>
 </div>
 <div class="grid">
 {% for d in devs %}
-  <a class="card" href="/device/{{ d.id }}" style="text-decoration:none;color:inherit">
+  <a class="card" href="{{ P(request) }}/device/{{ d.id }}" style="text-decoration:none;color:inherit">
     <div><span class="dot {{ 'on' if d.online }}"></span><b>{{ d.name }}</b></div>
     <div class="mut">{{ d.product_name }}</div>
   </a>

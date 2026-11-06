@@ -41,14 +41,37 @@ scheduler = AsyncIOScheduler()
 async def lifespan(app):
     db.init()
     if settings.sync_in_app:
-        scheduler.add_job(run_sync, "cron", hour=settings.sync_hour, minute=0, id="daily")
+        if settings.sync_interval_minutes > 0:  # por ex. de hora a hora, com a 1.ª execução logo ao arrancar
+            scheduler.add_job(run_sync, "interval", minutes=settings.sync_interval_minutes, id="sync",
+                              next_run_time=datetime.now())
+        else:
+            scheduler.add_job(run_sync, "cron", hour=settings.sync_hour, minute=0, id="daily")
         scheduler.start()
     yield
     if scheduler.running:
         scheduler.shutdown()
 
 
+class ForwardedPrefixMiddleware:
+    """Atrás do lighttpd (/power): retira o prefixo do cabeçalho X-Forwarded-Prefix do caminho e guarda-o
+    no scope, para as ligações geradas nas páginas o incluírem (como nas outras aplicações /ytd e /sc)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            prefix = dict(scope["headers"]).get(b"x-forwarded-prefix", b"").decode("latin-1").rstrip("/")
+            scope = dict(scope, tp_prefix=prefix)
+            path = scope["path"]
+            if prefix and (path == prefix or path.startswith(prefix + "/")):
+                path = path[len(prefix):] or "/"
+                scope["path"], scope["raw_path"] = path, path.encode("utf-8")
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(lifespan=lifespan, dependencies=[Depends(auth)])
+app.add_middleware(ForwardedPrefixMiddleware)
 
 
 EVENT_TYPES = {1: "Online", 2: "Offline", 3: "Ativação", 4: "Reposição", 5: "Comando enviado",
@@ -65,6 +88,7 @@ def _dt(ms, fmt="datetime"):
 
 
 templates.env.filters["dt"] = _dt
+templates.env.globals["P"] = lambda request: request.scope.get("tp_prefix", "")  # prefixo do proxy (ex.: /power)
 
 
 def _spec(row):
@@ -222,7 +246,7 @@ async def index(request: Request):
 @app.post("/sync", response_class=HTMLResponse)
 async def sync_now():
     await run_sync()
-    return HTMLResponse('<script>location="/"</script>')
+    return HTMLResponse("<script>location.reload()</script>")
 
 
 @app.get("/device/{dev_id}", response_class=HTMLResponse)

@@ -59,7 +59,7 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 .pnav button:disabled{opacity:.4;cursor:not-allowed}#plabel{min-width:170px;text-align:center;font-weight:600;text-transform:capitalize}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
-<header><a href="/">⚡ Tuya Power</a></header>
+<header><a href="{{ P(request) }}/">⚡ Tuya Power</a></header>
 <main>{% block content %}{% endblock %}</main>
 <script>
 // Datas/horas no formato e fuso das definições do sistema onde corre o navegador

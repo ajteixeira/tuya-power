@@ -92,7 +92,10 @@ app/
   templates/     páginas Jinja2/HTMX
 scripts/sync_once.py   sincronização única (para depuração e cron)
 scripts/cron_sync.sh   envoltório do cron (flock + registo em data/sync.log)
-run.sh                 arranque do servidor
+run.sh                 arranque do servidor (sem contentor)
+Dockerfile             imagem do contentor (micromamba, sem pip)
+docker-compose.yml     contentor: porta 8002 (127.0.0.1), dados em /mnt/storage1/data/tuya-power
+deploy/94-tuya-power.conf  configuração do lighttpd (/power)
 .vscode/               configurações de depuração
 data/tuya.db           base de dados (criada automaticamente)
 ```
@@ -156,6 +159,7 @@ Edite o `.env`:
 | `DB_PATH` | Caminho da base de dados (predefinição `data/tuya.db`) |
 | `SYNC_HOUR` | Hora local da descarga diária feita pelo próprio site (predefinição 3) |
 | `SYNC_IN_APP` | `true` (predefinição) mantém a sincronização diária do site; `false` se usar só o cron |
+| `SYNC_INTERVAL_MINUTES` | `>0`: sincroniza de N em N minutos (por exemplo `60`, de hora a hora, com a 1.ª execução ao arrancar) em vez de 1x por dia; o `docker-compose.yml` usa 60 |
 | `SYNC_INITIAL_DAYS` | Dias a descarregar na 1.ª sincronização (predefinição 7) |
 
 ## Execução
@@ -166,6 +170,62 @@ Edite o `.env`:
 
 Na primeira vez, clicar em **Sincronizar agora** para listar os dispositivos e
 descarregar o histórico. O estado da última sincronização aparece na página inicial.
+
+## Contentor (Docker)
+
+A aplicação corre num contentor e fica publicada em `http://<servidor>/power` através do lighttpd. A
+sincronização de hora a hora corre **dentro do contentor** (agendador da própria aplicação,
+`SYNC_INTERVAL_MINUTES=60`), por isso não é preciso cron no anfitrião.
+
+| | |
+|---|---|
+| Imagem | `ghcr.io/ajteixeira/tuya-power:latest` (também se constrói localmente com `docker-compose build`) |
+| Porta | `127.0.0.1:8002` no anfitrião → `8080` no contentor (só o lighttpd lhe acede; mude com `PORT`) |
+| Dados | `/mnt/storage1/data/tuya-power` → `/app/data` (a base de dados `tuya.db`, fora do contentor) |
+| Configuração | o `.env` do projeto (`env_file`): credenciais Tuya, `WEB_USER`/`WEB_PASSWORD` |
+| Utilizador | `1000:1000` (variáveis `UID`/`GID`), para os ficheiros dos dados ficarem do utilizador |
+| Fuso | `TZ=Europe/Lisbon` |
+
+```bash
+docker-compose up -d --build     # constrói (ou, sem --build, usa a imagem) e arranca
+docker-compose logs -f           # registos
+docker-compose down              # pára (os dados ficam na pasta montada)
+```
+
+**Primeira instalação a partir de uma base existente:** copie a base para a pasta de dados com o
+`backup` do SQLite (cópia consistente, mesmo com a base em uso):
+
+```bash
+python -c "import sqlite3;s=sqlite3.connect('data/tuya.db');d=sqlite3.connect('/mnt/storage1/data/tuya-power/tuya.db');s.backup(d)"
+```
+
+Se o contentor arrancar sem base de dados, cria uma vazia e só recupera os últimos 7 dias da Tuya.
+Retire também o cron do anfitrião (`crontab -e`, apagar a linha do `cron_sync.sh`) para não haver
+duas sincronizações.
+
+### Publicar em /power (lighttpd)
+
+Como as outras aplicações (`/ytd`, `/sc`), o lighttpd faz proxy para o contentor e envia o cabeçalho
+`X-Forwarded-Prefix: /power`; a aplicação retira o prefixo do caminho e põe-no em todas as ligações
+das páginas (também com a aplicação aberta diretamente, sem prefixo, tudo funciona).
+
+```bash
+sudo cp deploy/94-tuya-power.conf /etc/lighttpd/conf-available/
+sudo lighty-enable-mod tuya-power
+sudo systemctl reload lighttpd
+```
+
+### Imagem no GitHub Container Registry
+
+```bash
+docker login ghcr.io                      # utilizador do GitHub + token com o âmbito write:packages
+docker build -t ghcr.io/ajteixeira/tuya-power:latest .
+docker push ghcr.io/ajteixeira/tuya-power:latest
+```
+
+A imagem **não contém** o `.env` nem a base de dados (ver `.dockerignore`), só o código; as
+credenciais e os dados entram em tempo de execução. Por predefinição um pacote novo no ghcr é privado.
+Noutra máquina: `docker login ghcr.io` e `docker-compose up -d` (descarrega a imagem).
 
 ## Alarmes e limites do disjuntor (`alarm_set_*`)
 
@@ -211,9 +271,10 @@ sobrecorrente 16 A, sobretensão 265 V e subtensão 90 V, todas com corte ativo.
 - Para outro modelo de disjuntor, os tipos podem ser diferentes; ajuste `ALARM_TYPES` em
   `app/main.py`.
 
-## Sincronização automática (cron)
+## Sincronização automática (cron, sem contentor)
 
-A descarga pode correr independentemente do site, todas as horas, através do cron:
+Com o contentor, a sincronização horária é feita pela própria aplicação (ver acima) e este cron **não é
+necessário**. Sem contentor, a descarga pode correr independentemente do site, todas as horas, através do cron:
 
 ```bash
 crontab -e

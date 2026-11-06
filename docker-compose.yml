@@ -1,0 +1,18 @@
+services:
+  tuya-power:
+    build: .
+    image: ${TUYA_IMAGE:-ghcr.io/ajteixeira/tuya-power:latest}
+    container_name: tuya-power
+    restart: unless-stopped
+    # Só acessível pelo lighttpd (/power); para acesso direto na rede use "${PORT:-8002}:8080"
+    ports:
+      - "127.0.0.1:${PORT:-8002}:8080"
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Europe/Lisbon}
+      DB_PATH: /app/data/tuya.db
+      SYNC_IN_APP: "true"
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-60}   # sincronização horária dentro do contentor
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - /mnt/storage1/data/tuya-power:/app/data   # base de dados persistente (fora do contentor)

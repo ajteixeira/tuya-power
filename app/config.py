@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     db_path: str = "data/tuya.db"
     sync_hour: int = 3
     sync_in_app: bool = True  # False se a sincronização for feita por cron
+    sync_interval_minutes: int = 0  # >0: sincronizar de N em N minutos (por ex. 60) em vez de 1x por dia
     sync_initial_days: int = 7
 
 

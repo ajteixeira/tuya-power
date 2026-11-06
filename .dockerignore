@@ -1,0 +1,9 @@
+.git
+.vscode
+.env
+data
+__pycache__
+**/__pycache__
+scripts
+README.md
+initial-prompt.md
