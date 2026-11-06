@@ -56,4 +56,12 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
 <header><a href="/">⚡ Tuya Power</a></header>
-<main>{% block content %}{% endblock %}</main></body></html>
+<main>{% block content %}{% endblock %}</main>
+<script>
+// Datas/horas no formato e fuso das definições do sistema onde corre o navegador
+const FMT={datetime:{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'},time:{timeStyle:'medium',hourCycle:'h23'}};
+function localTimes(root){(root||document).querySelectorAll('time[data-ms]').forEach(t=>{
+  t.textContent=new Date(+t.dataset.ms).toLocaleString(undefined,FMT[t.dataset.fmt]||FMT.datetime);});}
+document.addEventListener('DOMContentLoaded',()=>localTimes());
+document.addEventListener('htmx:afterSwap',e=>localTimes(e.detail.target));
+</script></body></html>

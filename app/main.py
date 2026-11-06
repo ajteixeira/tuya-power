@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from markupsafe import Markup
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -55,8 +56,12 @@ EVENT_TYPES = {1: "Online", 2: "Offline", 3: "Ativação", 4: "Reposição", 5: 
                9: "Reinício", 10: "Temporização"}
 
 
-def _dt(ms):
-    return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+def _dt(ms, fmt="datetime"):
+    """Data/hora como <time data-ms>: o navegador reescreve-a no formato e fuso das definições
+    do sistema; o texto do servidor serve só de alternativa (sem JavaScript)."""
+    d = datetime.fromtimestamp(ms / 1000)
+    txt = d.strftime("%H:%M:%S") if fmt == "time" else d.strftime("%Y-%m-%d %H:%M:%S")
+    return Markup(f'<time data-ms="{int(ms)}" data-fmt="{fmt}">{txt}</time>')
 
 
 templates.env.filters["dt"] = _dt
@@ -276,7 +281,7 @@ async def status(request: Request, dev_id: str):
     main.sort(key=lambda i: MAIN.index(i["code"]))
     return templates.TemplateResponse(request, "_status.html", {
         "main": main, "other": other, "err": err,
-        "now": datetime.now().strftime("%H:%M:%S")})
+        "now_ms": int(time.time() * 1000)})
 
 
 @app.post("/device/{dev_id}/cmd", response_class=HTMLResponse)
@@ -299,10 +304,11 @@ async def command(dev_id: str, code: str = Form(...), value: str = Form(""), kin
 async def history(dev_id: str, code: str, days: int = 7):
     d = get_device(dev_id)
     funcs, stat = _spec(d)
-    scale = 0
+    scale, unit = 0, ""
     for it in stat + funcs:
         if it["code"] == code:
-            scale = _values(it).get("scale", 0)
+            v = _values(it)
+            scale, unit = v.get("scale", 0), v.get("unit") or DEFAULT_UNITS.get(code, "")
     since = int((time.time() - days * 86400) * 1000)
     with db.connect() as c:
         rows = c.execute("""SELECT event_time t, value v FROM logs WHERE device_id=? AND code=?
@@ -313,7 +319,7 @@ async def history(dev_id: str, code: str, days: int = 7):
             pts.append({"x": r["t"], "y": float(r["v"]) / 10 ** scale})
         except ValueError:
             pass
-    return JSONResponse(pts)
+    return JSONResponse({"points": pts, "unit": unit, "label": LABELS.get(code, code)})
 
 
 @app.get("/device/{dev_id}/codes")
@@ -335,12 +341,12 @@ async def log(request: Request, dev_id: str, page: int = 0, start: str = "", end
     where, args = ["device_id=?"], [dev_id]
     for val, op in ((start, ">="), (end, "<=")):
         if val:
-            try:
-                ms = int(datetime.fromisoformat(val).timestamp() * 1000)
+            try:  # o navegador envia milissegundos (no seu fuso); texto ISO = hora local do servidor
+                ms = int(val) if val.isdigit() else int(datetime.fromisoformat(val).timestamp() * 1000)
             except ValueError:
                 continue
             where.append(f"event_time{op}?")
-            args.append(ms + (59_999 if op == "<=" and len(val) <= 16 else 0))
+            args.append(ms + (59_999 if op == "<=" and not val.isdigit() and len(val) <= 16 else 0))
     if types:
         where.append(f"event_type IN ({','.join('?' * len(types))})")
         args += types

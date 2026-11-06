@@ -19,4 +19,4 @@
 </details>
 {% endif %}
 {% if not main and not other and not err %}<p class="mut">Sem dados de estado.</p>{% endif %}
-<p class="hint">Atualizado às {{ now }}</p>
+<p class="hint">Atualizado às {{ now_ms|dt('time') }}</p>

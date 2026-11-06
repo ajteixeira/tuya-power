@@ -66,10 +66,16 @@
 const id="{{ d.id }}";let chart;
 async function draw(){
   const code=document.getElementById('code').value; if(!code) return;
-  const pts=await (await fetch(`/device/${id}/history?code=${code}&days=${document.getElementById('days').value}`)).json();
+  const h=await (await fetch(`/device/${id}/history?code=${code}&days=${document.getElementById('days').value}`)).json();
+  const pts=h.points;
   chart?.destroy();
+  // Eixo simples: horas (HH:mm) até 24 h, dias (dd/mm) acima; sempre relógio de 24 horas
+  const days=+document.getElementById('days').value,hourly=days<=1;
+  const tick=v=>new Date(v).toLocaleString(undefined,hourly?{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}:{day:'2-digit',month:'2-digit'});
   chart=new Chart(document.getElementById('ch'),{type:'line',data:{datasets:[{label:code,data:pts,pointRadius:pts.length<40?3:0,borderWidth:1.5,stepped:true}]},
-    options:{parsing:false,scales:{x:{type:'time'}}}});
+    options:{parsing:false,
+      scales:{y:{title:{display:true,text:h.unit?`${h.label} (${h.unit})`:h.label}},x:{type:'time',time:{unit:hourly?'hour':'day'},ticks:{maxRotation:0,autoSkipPadding:20,callback:(v,i,t)=>tick(t[i].value)}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>new Date(it[0].parsed.x).toLocaleString(undefined,{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'})}}}}});
 }
 (async()=>{const cs=await (await fetch(`/device/${id}/codes`)).json();
   const s=document.getElementById('code');s.innerHTML=cs.map(c=>`<option>${c}</option>`).join('');
@@ -95,6 +101,10 @@ document.addEventListener('htmx:afterSwap',e=>{if(e.detail.target.id==='alarms')
   document.querySelectorAll('.edit-btn.editing[data-target="#alarms"]').forEach(b=>setEdit(b,false));});
 document.addEventListener('htmx:afterRequest',e=>{const f=e.detail.elt;
   if(f&&f.matches&&f.matches('form.cmd'))document.querySelectorAll('.edit-btn.editing[data-target]').forEach(b=>setEdit(b,false));});
+// Filtros de data: enviar milissegundos (fuso do navegador); o campo «Fim» inclui o minuto inteiro
+document.addEventListener('htmx:configRequest',e=>{const p=e.detail.parameters;
+  for(const k of ['start','end']){if(p[k]&&!/^\d+$/.test(p[k])){const ms=new Date(p[k]).getTime();
+    p[k]=isNaN(ms)?'':String(ms+(k==='end'?59999:0));}}});
 // Resumo dos menus de seleção múltipla, limpar filtros e fechar ao clicar fora
 const lf=document.getElementById('lf');
 function sumDD(){lf.querySelectorAll('details.dd').forEach(d=>{
