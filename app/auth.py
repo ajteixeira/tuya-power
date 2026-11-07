@@ -214,7 +214,8 @@ async def basic_login(request: Request, cred: HTTPBasicCredentials | None = Depe
 
 
 @router.get("/sso")
-async def start(request: Request):
+async def start(request: Request, prompt: str = ""):
+    """prompt=login obriga o fornecedor a pedir as credenciais, mesmo que a sessão dele ainda esteja aberta."""
     if not oidc_enabled():
         raise HTTPException(403, "Login OIDC não configurado")
     login = prefix(request) + "/auth/login"
@@ -227,7 +228,8 @@ async def start(request: Request):
     request.session["oauth"] = {"state": state, "nonce": nonce, "verifier": verifier}
     qs = urlencode({"client_id": settings.oidc_client_id, "redirect_uri": _redirect_uri(request),
                     "response_type": "code", "scope": settings.oidc_scopes, "state": state, "nonce": nonce,
-                    "code_challenge": challenge, "code_challenge_method": "S256"})
+                    "code_challenge": challenge, "code_challenge_method": "S256",
+                    **({"prompt": "login"} if prompt == "login" else {})})
     return RedirectResponse(f"{meta['authorization_endpoint']}?{qs}", 303)
 
 

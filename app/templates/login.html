@@ -5,7 +5,7 @@
   {% if error %}<p class="err">{{ error }}</p>{% endif %}
   {% if info %}<p class="mut">{{ info }}</p>{% endif %}
   {% if oidc %}
-    <p><a class="gbtn" href="{{ P(request) }}/auth/sso">Entrar de novo com {{ oidc_name }}</a></p>
+    <p><a class="gbtn" href="{{ P(request) }}/auth/sso?prompt=login">Entrar de novo com {{ oidc_name }}</a></p>
   {% endif %}
   {% if password %}
     <p><a href="{{ P(request) }}/auth/basic">Entrar com utilizador e palavra-passe</a></p>

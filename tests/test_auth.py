@@ -100,6 +100,11 @@ r = c.get("/auth/sso", follow_redirects=False)
 loc = r.headers["location"]
 check("início do fluxo -> /authorize com state, nonce e PKCE S256",
       loc.startswith("https://tenant.test/authorize?") and all(k in loc for k in ("state=", "nonce=", "code_challenge_method=S256")))
+check("/auth/sso normal não força o pedido de credenciais", "prompt=" not in loc)
+check("/auth/sso?prompt=login pede ao fornecedor as credenciais outra vez",
+      "prompt=login" in c.get("/auth/sso?prompt=login", follow_redirects=False).headers["location"])
+check("prompt desconhecido é ignorado", "prompt=" not in c.get("/auth/sso?prompt=none", follow_redirects=False).headers["location"])
+check("a ligação 'Entrar de novo' usa prompt=login", "/auth/sso?prompt=login" in c.get("/auth/login?msg=bye").text)
 check("redirect_uri deduzido do Host (http://x/auth/callback)", "redirect_uri=http%3A%2F%2Fx%2Fauth%2Fcallback" in loc)
 r = c.get("/auth/callback?code=abc&state=errado", follow_redirects=False)
 check("state errado -> erro", "error=state" in r.headers["location"])

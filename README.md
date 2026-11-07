@@ -211,7 +211,8 @@ cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 
 assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, quem não tem sessão é levado **automaticamente** ao
 login do fornecedor (`/auth/sso`), sem página nem botão intermédio, e volta ao endereço que pediu. A página
 `/auth/login` só aparece quando há algo a dizer (conta sem acesso, erro do fornecedor, «Sessão terminada»), com uma
-ligação para tentar de novo; assim uma recusa não entra em ciclo e o «Terminar sessão» não volta a entrar sozinho (o
+ligação para tentar de novo (`/auth/sso?prompt=login`, que obriga o fornecedor a pedir as credenciais outra vez: sem
+isso o Auth0, que mantém a sessão dele, reentrava sozinho sem mostrar o login); assim uma recusa não entra em ciclo e o «Terminar sessão» não volta a entrar sozinho (o
 Auth0 manteria a sessão do lado dele). Sem OIDC, o navegador pede a palavra-passe (HTTP Basic). Fragmentos HTMX e
 `fetch` sem sessão recebem 401 e levam o navegador ao fornecedor.
 
