@@ -155,7 +155,8 @@ Edite o `.env`:
 |---|---|
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` | Credenciais do projeto Tuya |
 | `TUYA_ENDPOINT` | Predefinição `https://openapi.tuyaeu.com` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ALLOWED_EMAILS` / `AUTH_REDIRECT_URI` / `WEB_PREFIX` / `SECRET_KEY` / `LAN_TRUSTED` / `LAN_HOSTS` | Autenticação Google OAuth2 (ver «Autenticação») |
+| `WEB_USER` / `WEB_PASSWORD` | Palavra-passe (HTTP Basic) para o acesso pela LAN. Vazia = desligada |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ALLOWED_EMAILS` / `AUTH_REDIRECT_URI` / `WEB_PREFIX` / `SECRET_KEY` / `LAN_TRUSTED` / `LAN_HOSTS` | Login Google e rede local confiável (ver «Autenticação») |
 | `DB_PATH` | Caminho da base de dados (predefinição `data/tuya.db`) |
 | `SYNC_HOUR` | Hora local da descarga diária feita pelo próprio site (predefinição 3) |
 | `SYNC_IN_APP` | `true` (predefinição) mantém a sincronização diária do site; `false` se usar só o cron |
@@ -184,39 +185,46 @@ Quem corre em desenvolvimento vê, portanto, dados antigos. Para depurar com os 
 Não deixe o site de desenvolvimento a correr com `SYNC_IN_APP=true`/cron em paralelo com o contentor:
 seriam duas sincronizações a pedir à Tuya (que limita a frequência).
 
-## Autenticação (Google OAuth2)
+## Autenticação
 
-O acesso ao site exige **login Google** (OAuth2 Authorization Code com PKCE, escrito sobre `httpx`;
-`app/auth.py`), a substituir o HTTP Basic anterior (`WEB_USER`/`WEB_PASSWORD`, removidos). A sessão é um
-cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de
-`WEB_PREFIX`; a assinatura usa `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`).
+O site só está acessível pela **rede local** (em HTTP, através do lighttpd). Há três mecanismos, que se
+combinam; sem nenhum configurado ninguém entra (fecha por omissão):
 
-**Quem entra.** Só as contas Google **verificadas** cujo email esteja em `GOOGLE_ALLOWED_EMAILS` (separados por
-vírgulas; **lista vazia = ninguém**). Sem `GOOGLE_CLIENT_ID`/`SECRET`, nenhum pedido externo entra: fecha por omissão.
+| Mecanismo | Ativação | Para quê |
+|---|---|---|
+| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD` | O acesso normal pela LAN: o navegador pede utilizador e palavra-passe. **Ativo.** |
+| **Login Google** (OAuth2 + PKCE) | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ALLOWED_EMAILS` | Implementado e **desligado**: a Google só aceita retorno em HTTPS, por isso só serve com acesso externo em HTTPS. |
+| **Rede local confiável** | `LAN_TRUSTED=true` | Dispensa o login a pedidos da LAN. **Desligado.** Qualquer equipamento da rede poderia alterar os limites do disjuntor. |
 
-**Rede local (opcional).** Com `LAN_TRUSTED=true`, um pedido dispensa o login se **todos** estes indícios de
-rede local se verificarem: esquema `http` (sem `X-Forwarded-Proto: https`/`Forwarded: proto=https`), `Host` em
-`LAN_HOSTS` e IP do cliente privado (o **último** valor do `X-Forwarded-For`, só confiado se o par TCP for o proxy).
-Basta um indício de acesso externo para exigir Google. A predefinição é `false`.
+**Palavra-passe.** Altere-a no `.env` da pasta de dados e reinicie o contentor (ver «Contentor»). Sem
+`WEB_PASSWORD` a palavra-passe fica desligada (e, sem Google nem LAN confiável, o site recusa tudo).
 
-> **Antes de ligar `LAN_TRUSTED`:** o acesso externo passa por um nginx que termina o HTTPS e liga ao lighttpd
-> em HTTP. Confirme que esse nginx envia `X-Forwarded-Proto: https` e `X-Forwarded-For` (por ex. `proxy_set_header
-> X-Forwarded-Proto https; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`) e que um pedido pelo URL
-> público **com `Host: lambdacore` forjado** pede login. O `deploy/94-tuya-power.conf` já não sobrescreve o
-> `X-Forwarded-Proto`. Enquanto isso não estiver verificado, deixe `LAN_TRUSTED=false`.
+**Login Google (`app/auth.py`).** OAuth2 Authorization Code com PKCE sobre o `httpx`. Entram só as contas
+**verificadas** cujo email esteja em `GOOGLE_ALLOWED_EMAILS` (separados por vírgulas; **vazio = ninguém**). A sessão é
+um cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`;
+assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com Google ativo, quem não tem
+sessão é levado a `/auth/login`, que oferece Google e, se existir `WEB_PASSWORD`, «Entrar com utilizador e
+palavra-passe» (`/auth/basic`, que troca a palavra-passe por uma sessão). Fragmentos HTMX e `fetch` sem sessão recebem
+401 e levam o navegador ao login.
 
-**Ativar o login Google**
-1. Na [Google Cloud Console](https://console.cloud.google.com/apis/credentials): *Create credentials → OAuth client ID*,
-   tipo **Web application**; em *Authorized redirect URIs* ponha o `AUTH_REDIRECT_URI` (por exemplo
-   `https://jtx.ddns.net/power/auth/callback`; a Google exige HTTPS, exceto em `localhost`). Âmbitos: `openid email profile`.
-2. No `.env` da pasta de dados (`/mnt/storage1/data/tuya-power/.env`) defina `GOOGLE_CLIENT_ID`,
-   `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_EMAILS`, `AUTH_REDIRECT_URI` e `WEB_PREFIX=/power`.
-3. Reconstrua a imagem e recrie o contentor (`docker-compose down && docker-compose up -d --build`).
+Para o ativar (exige HTTPS externo a chegar ao lighttpd, que hoje **não existe**: o `jtx.ddns.net` não aponta para
+esta máquina):
+1. Na [Google Cloud Console](https://console.cloud.google.com/apis/credentials) crie (ou reutilize, como o do
+   scrapper) um *OAuth client ID* **Web application** e junte em *Authorized redirect URIs* o `AUTH_REDIRECT_URI`
+   (por exemplo `https://jtx.ddns.net/power/auth/callback`; HTTPS obrigatório, exceto `localhost`).
+2. No `.env` da pasta de dados: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_EMAILS`,
+   `AUTH_REDIRECT_URI` e `WEB_PREFIX=/power`.
+3. Recrie o contentor. O login tem de começar no endereço público (o estado do OAuth fica no cookie desse domínio).
 
-O login tem de começar no endereço público (o cookie de estado fica nesse domínio): na rede local use o endereço
-HTTPS ou `LAN_TRUSTED`. Fragmentos HTMX e pedidos `fetch` sem sessão recebem 401 e levam o navegador ao login.
+**Rede local confiável (`LAN_TRUSTED`).** Dispensa o login se **todos** estes indícios de rede local se verificarem:
+esquema `http` (sem `X-Forwarded-Proto: https`/`Forwarded: proto=https`), `Host` em `LAN_HOSTS` e IP do cliente
+privado (o **último** valor do `X-Forwarded-For`, só confiado se o par TCP for o proxy). Basta um indício de acesso
+externo para exigir login. Só deve ligar-se se o acesso externo passar por um proxy que envie
+`X-Forwarded-Proto: https` e `X-Forwarded-For`, e depois de confirmar que um pedido pelo URL público com `Host:
+lambdacore` forjado pede login. O `deploy/94-tuya-power.conf` não sobrescreve o `X-Forwarded-Proto`.
 
-**Testes** (Google simulada, sem rede): `python tests/test_auth.py`.
+**Testes** (Google simulada, sem rede): `python tests/test_auth.py` (43 verificações: palavra-passe, fluxo Google,
+recusas, regra LAN com cabeçalhos forjados, sem configuração).
 
 ## Contentor (Docker)
 
@@ -229,7 +237,7 @@ sincronização de hora a hora corre **dentro do contentor** (agendador da próp
 | Imagem | `ghcr.io/ajteixeira/tuya-power:latest` (também se constrói localmente com `docker-compose build`) |
 | Porta | `127.0.0.1:8002` no anfitrião → `8080` no contentor (só o lighttpd lhe acede; mude com `PORT`) |
 | Dados | `/mnt/storage1/data/tuya-power` → `/app/data` (a base de dados `tuya.db`, fora do contentor) |
-| Configuração | `/mnt/storage1/data/tuya-power/.env` (ao lado da base de dados; modo 600): credenciais Tuya, login Google e `SYNC_*`. A aplicação lê-o ao arrancar (`ENV_FILE=/app/data/.env`); as credenciais **não** ficam nas variáveis de ambiente do contentor |
+| Configuração | `/mnt/storage1/data/tuya-power/.env` (ao lado da base de dados; modo 600): credenciais Tuya, `WEB_USER`/`WEB_PASSWORD`, `SYNC_*`. A aplicação lê-o ao arrancar (`ENV_FILE=/app/data/.env`); as credenciais **não** ficam nas variáveis de ambiente do contentor |
 | Utilizador | `1000:1000` (variáveis `UID`/`GID`), para os ficheiros dos dados ficarem do utilizador |
 | Fuso | `TZ=Europe/Lisbon` |
 
@@ -324,7 +332,7 @@ sobrecorrente 16 A, sobretensão 265 V e subtensão 90 V, todas com corte ativo.
 - Isto altera proteções reais do disjuntor. Experimente primeiro com uma alteração segura e
   confirme na app Tuya Smart.
 - A unidade/escala da potência alta ainda não está confirmada.
-- Só os emails autorizados (ou a rede local, se confiada) chegam a este formulário; ver «Autenticação».
+- Só chega a este formulário quem passar a autenticação (palavra-passe, Google ou rede local confiável); ver «Autenticação».
 - Para outro modelo de disjuntor, os tipos podem ser diferentes; ajuste `ALARM_TYPES` em
   `app/main.py`.
 
@@ -361,7 +369,7 @@ Abra a pasta `tuya-power` como raiz do espaço de trabalho (o interpretador é
 - **Sincronização única:** corre `scripts/sync_once.py` (depura `app/sync.py` e `app/tuya.py` sem servidor).
 
 As configurações escutam em `0.0.0.0`, logo o site fica acessível na rede local.
-Sem Google configurado, só um cliente da rede local com `LAN_TRUSTED=true` entra (veja «Autenticação»).
+Com `WEB_PASSWORD` definida, o site de desenvolvimento também pede a palavra-passe (veja «Autenticação»).
 A depuração usa `data/tuya.db` do projeto, não a base do contentor (ver «Execução»).
 
 ## Notas

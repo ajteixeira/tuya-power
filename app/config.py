@@ -8,7 +8,10 @@ class Settings(BaseSettings):
     tuya_access_id: str = ""
     tuya_access_secret: str = ""
     tuya_endpoint: str = "https://openapi.tuyaeu.com"
-    # Autenticação Google OAuth2 (substitui o HTTP Basic). Sem client_id/secret, só a LAN confiável entra.
+    # Palavra-passe (HTTP Basic): o acesso pela rede local. Vazia = desligada.
+    web_user: str = "admin"
+    web_password: str = ""
+    # Autenticação Google OAuth2 (opcional; exige HTTPS externo). Sem client_id/secret, só a LAN confiável entra.
     google_client_id: str = ""
     google_client_secret: str = ""
     google_allowed_emails: str = ""  # separados por vírgulas; vazio = ninguém

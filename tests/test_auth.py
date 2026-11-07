@@ -20,6 +20,7 @@ def check(name, cond):
 settings.google_client_id, settings.google_client_secret = "cid", "sec"
 settings.google_allowed_emails = "ok@x.com"
 settings.lan_trusted = False
+settings.web_password = ""   # isola os testes do .env local
 HTML = {"accept": "text/html"}
 
 def mock(email="ok@x.com", verified=True, token_ok=True):
@@ -108,5 +109,32 @@ cc = TestClient(m.app, base_url="http://x", client=("203.0.113.9", 1))
 check("sem Google e sem LAN: / pede login (nunca aberto)", cc.get("/", headers=HTML, follow_redirects=False).status_code == 303)
 check("sem Google: página de login avisa", "não está configurado" in cc.get("/auth/login").text)
 check("sem Google: /auth/google -> 403", cc.get("/auth/google", follow_redirects=False).status_code == 403)
+
+# --- palavra-passe (HTTP Basic) ---
+import base64
+def basic(u, p): return {"authorization": "Basic " + base64.b64encode(f"{u}:{p}".encode()).decode()}
+settings.web_user, settings.web_password = "admin", "segredo"
+settings.google_client_id = ""      # só palavra-passe
+cc = TestClient(m.app, base_url="http://x", client=("203.0.113.9", 1))
+r = cc.get("/", headers=HTML)
+check("só palavra-passe: sem credenciais -> 401 + WWW-Authenticate Basic", r.status_code == 401 and "basic" in r.headers.get("www-authenticate", "").lower())
+check("só palavra-passe: credenciais certas -> 200", cc.get("/", headers={**HTML, **basic("admin", "segredo")}).status_code == 200)
+check("só palavra-passe: palavra-passe errada -> 401", cc.get("/", headers={**HTML, **basic("admin", "errada")}).status_code == 401)
+check("só palavra-passe: utilizador errado -> 401", cc.get("/", headers={**HTML, **basic("outro", "segredo")}).status_code == 401)
+check("só palavra-passe: fetch/JSON com credenciais -> não 401", cc.get("/device/x/codes", headers=basic("admin", "segredo")).status_code != 401)
+check("só palavra-passe: HTMX sem credenciais -> 401 (o navegador pede-as)", cc.get("/device/x/status", headers={"hx-request": "true"}).status_code == 401)
+settings.google_client_id = "cid"   # palavra-passe + Google
+cc = TestClient(m.app, base_url="http://x", client=("203.0.113.9", 1))
+check("com Google ativo: sem credenciais -> redireciona para o login", cc.get("/", headers=HTML, follow_redirects=False).status_code == 303)
+check("página de login mostra Google e palavra-passe", all(t in cc.get("/auth/login").text for t in ("Entrar com Google", "palavra-passe")))
+check("/auth/basic sem credenciais -> 401", cc.get("/auth/basic", follow_redirects=False).status_code == 401)
+r = cc.get("/auth/basic", headers=basic("admin", "errada"), follow_redirects=False)
+check("/auth/basic com palavra-passe errada -> 401", r.status_code == 401)
+r = cc.get("/auth/basic", headers=basic("admin", "segredo"), follow_redirects=False)
+check("/auth/basic com credenciais certas -> sessão e 303", r.status_code == 303 and cc.get("/").status_code == 200)
+settings.lan_trusted = True
+check("palavra-passe não substitui a regra LAN (IP público continua a pedir)", lan(xff="8.8.8.8") == 401 or lan(xff="8.8.8.8") == 303)
+settings.lan_trusted = False
+settings.web_password = ""
 print(f"\n{ok_n} ok, {fail_n} falhas")
 sys.exit(1 if fail_n else 0)

@@ -6,8 +6,12 @@
   {% if google %}
     <p class="mut">Entre com a sua conta Google autorizada.</p>
     <p><a class="gbtn" href="{{ P(request) }}/auth/google">Entrar com Google</a></p>
-  {% else %}
-    <p class="err">O login Google não está configurado.</p>
+  {% endif %}
+  {% if password %}
+    <p><a href="{{ P(request) }}/auth/basic">Entrar com utilizador e palavra-passe</a></p>
+  {% endif %}
+  {% if not google and not password %}
+    <p class="err">O login não está configurado (nem Google nem palavra-passe).</p>
   {% endif %}
 </div>
 {% endblock %}

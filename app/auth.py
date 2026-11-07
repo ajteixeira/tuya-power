@@ -1,7 +1,8 @@
-"""Autenticação: login Google (OAuth2 Authorization Code + PKCE) e regra de «rede local confiável».
+"""Autenticação: palavra-passe (HTTP Basic), login Google (OAuth2 Authorization Code + PKCE, opcional) e
+regra de «rede local confiável» (opcional).
 
-Fecha por omissão: sem sessão Google válida, só entra quem vier da rede local em HTTP e apenas com
-LAN_TRUSTED=true. Basta um indício de acesso externo (https, host desconhecido, IP público) para exigir login.
+Fecha por omissão: sem credenciais válidas, sem sessão Google e sem LAN_TRUSTED=true ninguém entra. Na regra
+LAN basta um indício de acesso externo (https, host desconhecido, IP público) para exigir login.
 """
 import base64
 import hashlib
@@ -11,14 +12,17 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from .config import settings
 
 router = APIRouter(prefix="/auth")
 templates = None  # definido por main.py (mesmas globais/filtros das restantes páginas)
 
+basic = HTTPBasic(auto_error=False)
+BASIC_CHALLENGE = {"WWW-Authenticate": 'Basic realm="Tuya Power"'}
 GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
@@ -30,6 +34,16 @@ def http_client() -> httpx.AsyncClient:  # os testes substituem-no
 
 def google_enabled() -> bool:
     return bool(settings.google_client_id and settings.google_client_secret)
+
+
+def password_enabled() -> bool:
+    return bool(settings.web_password)
+
+
+def password_ok(cred: HTTPBasicCredentials | None) -> bool:
+    return bool(cred and password_enabled()
+                and secrets.compare_digest(cred.username.encode(), settings.web_user.encode())
+                and secrets.compare_digest(cred.password.encode(), settings.web_password.encode()))
 
 
 def allowed_emails() -> set[str]:
@@ -97,13 +111,15 @@ def _redirect_uri(request: Request) -> str:
     return f"{proto}://{request.headers.get('host', '')}{prefix(request)}/auth/callback"
 
 
-async def require_login(request: Request):
-    """Dependência global: deixa passar a LAN confiável e as sessões Google; senão pede o login."""
+async def require_login(request: Request, cred: HTTPBasicCredentials | None = Depends(basic)):
+    """Dependência global: deixa passar a palavra-passe, a LAN confiável e as sessões; senão pede o login."""
     path = request.scope["path"]
     if path.startswith("/auth/"):
         return
-    if is_lan(request) or request.session.get("user"):
+    if request.session.get("user") or is_lan(request) or password_ok(cred):
         return
+    if not google_enabled() and password_enabled():  # só palavra-passe: o navegador pede-a (HTTP Basic)
+        raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
     login = f"{prefix(request)}/auth/login"
     if request.headers.get("hx-request"):  # fragmentos HTMX: o navegador redireciona a página inteira
         raise HTTPException(401, "Sessão necessária", headers={"HX-Redirect": login})
@@ -115,7 +131,8 @@ async def require_login(request: Request):
 
 
 def _page(request: Request, status: int, **ctx):
-    return templates.TemplateResponse(request, "login.html", {"google": google_enabled(), **ctx}, status_code=status)
+    return templates.TemplateResponse(request, "login.html", {"google": google_enabled(), "password": password_enabled(), **ctx},
+                                      status_code=status)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -125,6 +142,16 @@ async def login_page(request: Request, error: str = ""):
     msgs = {"denied": "Esta conta Google não tem acesso.", "state": "O pedido de login expirou. Tente de novo.",
             "google": "A Google recusou ou falhou o login."}
     return _page(request, 200, error=msgs.get(error, ""))
+
+
+@router.get("/basic")
+async def basic_login(request: Request, cred: HTTPBasicCredentials | None = Depends(basic)):
+    """Troca a palavra-passe (HTTP Basic) por uma sessão; usado a partir da página de login."""
+    if not password_ok(cred):
+        raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
+    request.session["user"] = {"email": cred.username, "name": cred.username}
+    nxt = request.session.pop("next", "/")
+    return RedirectResponse(prefix(request) + (nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"), 303)
 
 
 @router.get("/google")
