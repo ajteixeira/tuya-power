@@ -1,5 +1,10 @@
 {% if msg %}<p class="{{ 'err' if err else 'ok' }}">{{ msg }}</p>{% endif %}
-{% if alarms %}
+{% if alarms and not can_edit %}
+<table class="kvt"><tr><th>Alarme</th><th>Limite</th><th>Corte do disjuntor</th></tr>
+{% for a in alarms %}{% for r in a.recs %}<tr><td>{{ r.name }}</td><td>{{ r.val }} {{ r.unit }}</td>
+  <td><span class="pill {{ 'p-on' if r.on else 'p-off' }}">{{ 'Ativo' if r.on else 'Inativo' }}</span></td></tr>{% endfor %}{% endfor %}</table>
+<p class="hint">Só os administradores podem alterar os alarmes.</p>
+{% elif alarms %}
 <form class="alr" hx-post="{{ P(request) }}/device/{{ dev_id }}/alarms" hx-target="#alarms" hx-swap="innerHTML"
       hx-confirm="Enviar os limites alterados ao disjuntor?">
 <fieldset class="ctl blk" disabled>

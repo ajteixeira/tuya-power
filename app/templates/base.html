@@ -60,10 +60,19 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 .top{display:flex;justify-content:space-between;align-items:center}.who{display:flex;gap:10px;align-items:center;margin:0}
 .who button{height:30px;padding:0 10px;font-size:13px}
 .gbtn{display:inline-block;padding:10px 18px;border-radius:8px;background:var(--acc);color:#fff;text-decoration:none;font-weight:600}
+.usr{font-size:14px;text-decoration:none}.pend{background:var(--err);color:#fff;border-radius:999px;padding:0 7px;font-size:12px;font-weight:700}
+.role{font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;background:rgba(148,163,184,.2);color:var(--mut)}.role.admin{background:rgba(37,99,235,.18);color:var(--acc)}
+.who2{margin:0}.who2 button{height:30px;padding:0 10px;font-size:13px}
+.uacts{display:flex;gap:6px}.uacts form{margin:0}.uacts button{height:30px;padding:0 10px;font-size:13px}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
 <header class="top"><a href="{{ P(request) }}/">⚡ Tuya Power</a>
-  {% if request.session.get('user') %}<form method="post" action="{{ P(request) }}/auth/logout" class="who"><span class="mut">{{ request.session['user']['email'] }}</span><button class="sec">Terminar sessão</button></form>{% endif %}</header>
+  {% set u = request.state.user %}
+  {% if u %}<div class="who">
+    {% if u.role == 'admin' %}<a href="{{ P(request) }}/admin/users" class="usr">Utilizadores{% if pending_users() %} <span class="pend">{{ pending_users() }}</span>{% endif %}</a>{% endif %}
+    <span class="mut">{{ u.email }}</span><span class="role {{ u.role }}">{{ 'Admin' if u.role == 'admin' else 'User' }}</span>
+    {% if u.source == 'oidc' %}<form method="post" action="{{ P(request) }}/auth/logout" class="who2"><button class="sec">Terminar sessão</button></form>{% endif %}
+  </div>{% endif %}</header>
 <main>{% block content %}{% endblock %}</main>
 <script>
 // Datas/horas no formato e fuso das definições do sistema onde corre o navegador

@@ -15,10 +15,11 @@ class Settings(BaseSettings):
     oidc_issuer: str = ""  # por ex. https://O-SEU-TENANT.eu.auth0.com  (tem de ser https)
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
-    oidc_allowed_emails: str = ""  # separados por vírgulas; vazio = ninguém
+    admin_emails: str = ""  # emails que entram logo como Admin ativos (separados por vírgulas); os outros ficam pendentes
+    oidc_allowed_emails: str = ""  # DESCONTINUADO: tratado como ADMIN_EMAILS (para não perder o acesso ao migrar)
     oidc_name: str = "SSO"  # texto do botão de login (por ex. Auth0)
     oidc_scopes: str = "openid email profile"
-    oidc_require_verified_email: bool = True  # False: confiar só na lista de emails (Auth0: utilizadores sem email verificado)
+    oidc_require_verified_email: bool = True  # com inscrições abertas, exigir sempre o email verificado
     auth_redirect_uri: str = ""  # vazio = deduzido do Host (ex.: http://lambdacore/power/auth/callback)
     secret_key: str = ""  # cookie de sessão; vazio = gerado em <pasta de dados>/.session_secret
     web_prefix: str = ""  # por ex. /power (caminho do cookie de sessão)

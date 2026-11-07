@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
+from . import users
 from .config import settings
 
 router = APIRouter(prefix="/auth")
@@ -51,8 +52,10 @@ def oidc_enabled() -> bool:
     return bool(settings.oidc_issuer.startswith("https://") and settings.oidc_client_id and settings.oidc_client_secret)
 
 
-def allowed_emails() -> set[str]:
-    return {e.strip().lower() for e in settings.oidc_allowed_emails.split(",") if e.strip()}
+def admin_emails() -> set[str]:
+    """Emails que entram como Admin ativos. OIDC_ALLOWED_EMAILS (descontinuado) conta como ADMIN_EMAILS."""
+    raw = f"{settings.admin_emails},{settings.oidc_allowed_emails}"
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
 async def _get_json(url: str) -> dict:
@@ -163,11 +166,24 @@ def _redirect_uri(request: Request) -> str:
 
 
 async def require_login(request: Request, cred: HTTPBasicCredentials | None = Depends(basic)):
-    """Dependência global: deixa passar a palavra-passe, a LAN confiável e as sessões; senão pede o login."""
+    """Dependência global: identifica quem pede e guarda-o em request.state.user ({email, name, role, source}).
+    Sessão OIDC (utilizador ativo na base) > rede local confiável (papel user) > palavra-passe (papel admin)."""
     path = request.scope["path"]
     if path.startswith("/auth/"):
         return
-    if request.session.get("user") or is_lan(request) or password_ok(cred):
+    uid = request.session.get("uid")
+    if uid:
+        u = users.by_id(uid)  # relê a base: um Admin pode ter desativado a conta entretanto
+        if u and u["status"] == "active":
+            request.state.user = {"id": u["id"], "email": u["email"], "name": u["name"] or u["email"],
+                                  "role": u["role"], "source": "oidc"}
+            return
+        request.session.clear()
+    if is_lan(request):
+        request.state.user = {"email": "rede local", "name": "rede local", "role": "user", "source": "lan"}
+        return
+    if password_ok(cred):
+        request.state.user = {"email": cred.username, "name": cred.username, "role": "admin", "source": "password"}
         return
     if not oidc_enabled() and password_enabled():  # só palavra-passe: o navegador pede-a (HTTP Basic)
         raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
@@ -191,26 +207,18 @@ def _page(request: Request, status: int, **ctx):
 async def login_page(request: Request, error: str = "", msg: str = ""):
     """Só mostra uma página quando há algo a dizer (recusa, erro, sessão terminada); sem mensagem, e com OIDC,
     segue direto para o fornecedor."""
-    if request.session.get("user"):
+    if request.session.get("uid"):
         return RedirectResponse(prefix(request) + "/", 303)
     if oidc_enabled() and not error and not msg:
         return RedirectResponse(prefix(request) + "/auth/sso", 303)
-    errors = {"denied": "Esta conta não tem acesso.", "state": "O pedido de login expirou. Tente de novo.",
+    errors = {"denied": "O acesso desta conta foi recusado por um administrador.",
+              "disabled": "Esta conta está desativada.",
+              "unverified": "Confirme primeiro o seu email: o fornecedor enviou-lhe uma ligação de verificação.",
+              "state": "O pedido de login expirou. Tente de novo.",
               "idp": "O fornecedor de login recusou ou falhou (ou o token é inválido)."}
-    info = {"bye": "Sessão terminada."}
+    info = {"bye": "Sessão terminada.",
+            "pending": "O seu pedido de acesso foi registado e aguarda a aprovação de um administrador. Volte mais tarde."}
     return _page(request, 200, error=errors.get(error, ""), info=info.get(msg, ""))
-
-
-@router.get("/basic")
-async def basic_login(request: Request, cred: HTTPBasicCredentials | None = Depends(basic)):
-    """Troca a palavra-passe (HTTP Basic) por uma sessão; usado a partir da página de login."""
-    if not password_enabled():
-        raise HTTPException(404)
-    if not password_ok(cred):
-        raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
-    request.session["user"] = {"email": cred.username, "name": cred.username}
-    nxt = request.session.pop("next", "/")
-    return RedirectResponse(prefix(request) + (nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"), 303)
 
 
 @router.get("/sso")
@@ -253,14 +261,19 @@ async def callback(request: Request, code: str = "", state: str = "", error: str
     except (httpx.HTTPError, jwt.PyJWTError, KeyError, ValueError):
         return RedirectResponse(f"{login}?error=idp", 303)
     email = str(claims.get("email", "")).lower()
-    verified = claims.get("email_verified") is True or not settings.oidc_require_verified_email
-    if not (email and verified and email in allowed_emails()):  # lista vazia nega tudo
-        motivo = ("sem email no token (scope email?)" if not email else "email não verificado (email_verified=%r)"
-                  % claims.get("email_verified") if not verified else "email fora de OIDC_ALLOWED_EMAILS")
-        log.warning("Login OIDC recusado: %s; email=%s", motivo, email or "-")
+    if not email:
+        log.warning("Login OIDC recusado: sem email no token (scope email?)")
         return RedirectResponse(f"{login}?error=denied", 303)
+    if claims.get("email_verified") is not True and settings.oidc_require_verified_email:
+        log.warning("Login OIDC recusado: email não verificado (%s)", email)
+        return RedirectResponse(f"{login}?error=unverified", 303)
+    u = users.upsert_login(email, claims.get("name", ""), admin_emails())
+    if u["status"] != "active":
+        log.warning("Login OIDC sem acesso: %s (%s)", email, u["status"])
+        outcome = {"pending": "msg=pending", "rejected": "error=denied", "disabled": "error=disabled"}[u["status"]]
+        return RedirectResponse(f"{login}?{outcome}", 303)
     nxt = request.session.pop("next", "/")
-    request.session["user"] = {"email": email, "name": claims.get("name", email)}
+    request.session["uid"] = u["id"]
     if not nxt.startswith("/") or nxt.startswith("//"):  # só caminhos locais
         nxt = "/"
     return RedirectResponse(prefix(request) + nxt, 303)

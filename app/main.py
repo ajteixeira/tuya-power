@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, db
+from . import auth, db, users
 from .config import settings
 from .sync import run_sync
 from .tuya import TuyaError, tuya
@@ -61,6 +61,7 @@ class ForwardedPrefixMiddleware:
 
 app = FastAPI(lifespan=lifespan, dependencies=[Depends(auth.require_login)])
 app.include_router(auth.router)
+app.include_router(users.router)
 # Sessão (cookie próprio, no caminho do prefixo, para não colidir com /sc e /ytd); o prefixo trata-se primeiro
 app.add_middleware(SessionMiddleware, secret_key=auth.session_secret(), session_cookie="tuya_power_session",
                    path=settings.web_prefix or "/", max_age=7 * 86400, same_site="lax",
@@ -83,6 +84,8 @@ def _dt(ms, fmt="datetime"):
 
 templates.env.filters["dt"] = _dt
 auth.templates = templates
+users.templates = templates
+templates.env.globals["pending_users"] = users.count_pending
 templates.env.globals["P"] = lambda request: request.scope.get("tp_prefix", "")  # prefixo do proxy (ex.: /power)
 
 
@@ -167,7 +170,7 @@ async def _alarm_forms(request, dev_id, msg="", err=False):
                 hx = ""
             raws.append({"code": x["code"], "b64": x["value"], "hex": hx})
     return templates.TemplateResponse(request, "_alarms.html", {
-        "alarms": alarms, "raws": raws, "dev_id": dev_id, "msg": msg or e or "", "err": err or bool(e)})
+        "alarms": alarms, "raws": raws, "can_edit": getattr(request.state, "user", {}).get("role") == "admin", "dev_id": dev_id, "msg": msg or e or "", "err": err or bool(e)})
 
 
 @app.get("/device/{dev_id}/alarms", response_class=HTMLResponse)
@@ -176,7 +179,7 @@ async def alarms(request: Request, dev_id: str):
     return await _alarm_forms(request, dev_id)
 
 
-@app.post("/device/{dev_id}/alarms", response_class=HTMLResponse)
+@app.post("/device/{dev_id}/alarms", response_class=HTMLResponse, dependencies=[Depends(users.require_admin)])
 async def alarms_set(request: Request, dev_id: str):
     """Recebe a tabela inteira (campos order__<código>, v__<código>__<tipo>, on__<código>__<tipo>)
     e só envia os alarm_set_* cujo valor mudou."""

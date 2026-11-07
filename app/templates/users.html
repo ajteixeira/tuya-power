@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block title %}Utilizadores{% endblock %}
+{% block content %}
+{% set msgs = {"ok": "Feito.", "estado": "Esse utilizador já não está nesse estado.", "proprio": "Não pode fazer isso à sua própria conta.", "ultimo": "Tem de existir sempre pelo menos um Admin ativo."} %}
+<div class="card-h"><h2 style="margin:0">Utilizadores</h2></div>
+{% if msg %}<p class="{{ 'ok' if msg == 'ok' else 'err' }}">{{ msgs.get(msg, msg) }}</p>{% endif %}
+{% macro acts(u, items) %}
+  <div class="uacts">{% for a, label, cls in items %}
+    <form method="post" action="{{ P(request) }}/admin/users/{{ u.id }}/{{ a }}"><button class="{{ cls }}">{{ label }}</button></form>{% endfor %}</div>
+{% endmacro %}
+{% set pend = users | selectattr('status', 'equalto', 'pending') | list %}
+<div class="card"><h3>Pedidos pendentes ({{ pend|length }})</h3>
+{% if pend %}<table><tr><th>Email</th><th>Nome</th><th>Pedido em</th><th></th></tr>
+{% for u in pend %}<tr><td>{{ u.email }}</td><td>{{ u.name or '' }}</td><td>{{ (u.created_at*1000)|dt if u.created_at }}</td>
+  <td>{{ acts(u, [('approve','Aprovar',''),('reject','Rejeitar','sec')]) }}</td></tr>{% endfor %}</table>
+{% else %}<p class="mut">Sem pedidos pendentes.</p>{% endif %}</div>
+<div class="card"><h3>Utilizadores</h3>
+<table><tr><th>Email</th><th>Nome</th><th>Papel</th><th>Estado</th><th>Último login</th><th>Aprovado por</th><th></th></tr>
+{% for u in users if u.status != 'pending' %}<tr><td>{{ u.email }}{% if u.email == me %} <span class="mut">(você)</span>{% endif %}</td><td>{{ u.name or '' }}</td>
+  <td><span class="role {{ u.role }}">{{ 'Admin' if u.role == 'admin' else 'User' }}</span></td>
+  <td>{{ {'active':'Ativo','rejected':'Rejeitado','disabled':'Desativado'}[u.status] }}</td>
+  <td>{{ (u.last_login*1000)|dt if u.last_login }}</td><td class="mut">{{ u.approved_by or '' }}</td>
+  <td>{% if u.status == 'active' %}{% if u.role == 'user' %}{{ acts(u, [('make_admin','Tornar Admin','sec'),('disable','Desativar','sec')]) }}
+      {% else %}{{ acts(u, [('make_user','Tornar User','sec'),('disable','Desativar','sec')]) }}{% endif %}
+    {% else %}{{ acts(u, [('enable','Reativar','')]) }}{% endif %}</td></tr>{% endfor %}</table></div>
+{% endblock %}

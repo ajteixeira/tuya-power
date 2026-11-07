@@ -156,7 +156,7 @@ Edite o `.env`:
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` | Credenciais do projeto Tuya |
 | `TUYA_ENDPOINT` | Predefinição `https://openapi.tuyaeu.com` |
 | `WEB_USER` / `WEB_PASSWORD` | Palavra-passe (HTTP Basic) para o acesso pela LAN. Vazia = desligada |
-| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ALLOWED_EMAILS` / `OIDC_NAME` / `OIDC_REQUIRE_VERIFIED_EMAIL` / `AUTH_REDIRECT_URI` / `WEB_PREFIX` / `SECRET_KEY` / `LAN_TRUSTED` / `LAN_HOSTS` | Login OIDC e rede local confiável (ver «Autenticação») |
+| `ADMIN_EMAILS` / `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_NAME` / `OIDC_REQUIRE_VERIFIED_EMAIL` / `AUTH_REDIRECT_URI` / `WEB_PREFIX` / `SECRET_KEY` / `LAN_TRUSTED` / `LAN_HOSTS` | Utilizadores, login OIDC e rede local confiável (ver «Autenticação e utilizadores») |
 | `DB_PATH` | Caminho da base de dados (predefinição `data/tuya.db`) |
 | `SYNC_HOUR` | Hora local da descarga diária feita pelo próprio site (predefinição 3) |
 | `SYNC_IN_APP` | `true` (predefinição) mantém a sincronização diária do site; `false` se usar só o cron |
@@ -185,62 +185,83 @@ Quem corre em desenvolvimento vê, portanto, dados antigos. Para depurar com os 
 Não deixe o site de desenvolvimento a correr com `SYNC_IN_APP=true`/cron em paralelo com o contentor:
 seriam duas sincronizações a pedir à Tuya (que limita a frequência).
 
-## Autenticação
+## Autenticação e utilizadores
 
-O site só está acessível pela **rede local** (em HTTP, através do lighttpd). Há três mecanismos, que se
-combinam; sem nenhum configurado ninguém entra (fecha por omissão):
+O site só está acessível pela **rede local** (em HTTP, através do lighttpd). Sem nenhum mecanismo configurado
+ninguém entra (fecha por omissão). Mecanismos:
 
-| Mecanismo | Ativação | Para quê |
+| Mecanismo | Ativação | Papel |
 |---|---|---|
-| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD` | Acesso pela LAN: o navegador pede utilizador e palavra-passe. **Só vale quando o OIDC não está configurado**; com OIDC é ignorada. |
-| **Login OIDC** (Auth0, Google…) | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ALLOWED_EMAILS` | OAuth2 com validação do `id_token` (JWT). Desligado enquanto não houver configuração. |
-| **Rede local confiável** | `LAN_TRUSTED=true` | Dispensa o login a pedidos da LAN. **Desligado**: qualquer equipamento da rede poderia alterar os limites do disjuntor. |
+| **Login OIDC** (Auth0, Google…) | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | o da conta na app (ver abaixo) |
+| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD`; **só vale sem OIDC configurado** | Admin |
+| **Rede local confiável** | `LAN_TRUSTED=true` (desligado) | User |
 
-**Palavra-passe.** Só é usada enquanto o OIDC **não** estiver configurado (é a alternativa simples em HTTP): altere-a
-no `.env` da pasta de dados e reinicie o contentor. Com o OIDC configurado a palavra-passe é ignorada (o HTTP Basic
-não é aceite e `/auth/basic` não existe), mesmo que `WEB_PASSWORD` continue no ficheiro. Sem nenhum dos dois, e sem
-LAN confiável, o site recusa tudo.
+### Inscrição e autorização (como no scrapper)
+Quem quiser acesso **inscreve-se no Auth0** (registos abertos, com verificação do email) e a **app autoriza**:
+1. No 1.º login a app cria o utilizador como **pendente** (tabela `users` no SQLite) e mostra «aguarda a aprovação de um
+   administrador». Um utilizador pendente não acede a nada.
+2. Um **Admin** aprova ou rejeita em **`/admin/users`** (ligação «Utilizadores» no cabeçalho, com o n.º de pedidos pendentes).
+3. Estados: `pending` → `active` | `rejected`; um ativo pode ser `disabled` (e um rejeitado/desativado pode ser reativado).
+   A sessão é revista **em cada pedido**: desativar alguém corta o acesso logo, sem esperar que a sessão (7 dias) expire.
 
-**Login OIDC (`app/auth.py`).** Authorization Code com **PKCE** e `nonce`, sobre o `httpx`, para qualquer
-fornecedor OpenID Connect com descoberta (`{issuer}/.well-known/openid-configuration`). O `id_token` é validado como
-JWT: só **RS256** (recusa `none` e `HS256`), assinatura pelo JWKS (em cache 1 hora; se o `kid` for desconhecido,
-volta a obtê-lo uma vez, para a rotação de chaves) e verificação de `iss`, `aud`, `exp`, `iat`, `sub` e `nonce`.
-Entram só os emails em `OIDC_ALLOWED_EMAILS` (vírgulas; **vazio = ninguém**) com email verificado
-(`OIDC_REQUIRE_VERIFIED_EMAIL=false` confia só na lista). O `OIDC_ISSUER` tem de ser `https://`. A sessão é um
-cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`;
-assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, quem não tem sessão é levado **automaticamente** ao
-login do fornecedor (`/auth/sso`), sem página nem botão intermédio, e volta ao endereço que pediu. A página
-`/auth/login` só aparece quando há algo a dizer (conta sem acesso, erro do fornecedor, «Sessão terminada»), com uma
-ligação para tentar de novo (`/auth/sso?prompt=login`, que obriga o fornecedor a pedir as credenciais outra vez: sem
-isso o Auth0, que mantém a sessão dele, reentrava sozinho sem mostrar o login); assim uma recusa não entra em ciclo e o «Terminar sessão» não volta a entrar sozinho (o
-Auth0 manteria a sessão do lado dele). Sem OIDC, o navegador pede a palavra-passe (HTTP Basic). Fragmentos HTMX e
-`fetch` sem sessão recebem 401 e levam o navegador ao fornecedor.
+### Papéis
+| | **User** | **Admin** |
+|---|---|---|
+| Ver estado, histórico e registos | sim | sim |
+| Ligar/desligar e ajustar dispositivos (separador Configuração) | sim | sim |
+| Ver os alarmes do disjuntor | só leitura | sim |
+| **Editar os alarmes/limites** | não (403) | sim |
+| Gerir utilizadores (aprovar, rejeitar, desativar, mudar papel) | não (403) | sim |
 
-**Ativar com o Auth0** (plano gratuito; o Auth0 aceita `http://` com um nome da LAN no endereço de retorno)
-1. Em auth0.com crie um *tenant* e uma aplicação do tipo **Regular Web Application**.
-2. Em *Allowed Callback URLs* ponha `http://lambdacore/power/auth/callback` (correspondência exata: um URL por nome
-   ou IP com que aceda ao site).
-3. Em *Authentication → Database*, desligue os registos públicos (*Disable Sign Ups*) e crie o utilizador no painel.
-   Os utilizadores criados no painel têm o email por verificar: marque-o como verificado (*User → Email verified*) ou
-   ponha `OIDC_REQUIRE_VERIFIED_EMAIL=false`.
-4. No `.env` da pasta de dados: `OIDC_ISSUER=https://<tenant>.<região>.auth0.com`, `OIDC_CLIENT_ID`,
-   `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED_EMAILS=<o seu email>`, `OIDC_NAME=Auth0` e `WEB_PREFIX=/power`.
-5. `docker restart tuya-power`. O endereço de retorno deduz-se do `Host` do pedido (ou fixe-o em `AUTH_REDIRECT_URI`).
+Um Admin não se pode desativar, rejeitar nem despromover a si próprio (garante-se sempre um Admin ativo).
 
-**Limites desta configuração.** O login depende da internet (o contentor liga ao Auth0; as sessões abertas duram 7
-dias, e, para ter alternativa, retire a configuração OIDC e use a palavra-passe). Na LAN o tráfego é HTTP: o `id_token` não passa pelo navegador, mas o
-cookie de sessão pode ser lido na rede. O Auth0 guarda os emails (serviço de terceiros). Sem HTTPS externo não há como
-usar fornecedores que o exigem no retorno (Google, Microsoft).
+### Primeiro Admin
+`ADMIN_EMAILS` (no `.env`, separados por vírgulas): estes emails entram **logo como Admin ativos** no 1.º login (e são
+repostos como Admin ativos se alguém os mexer); os restantes ficam pendentes. `OIDC_ALLOWED_EMAILS` está
+**descontinuado**: conta como `ADMIN_EMAILS`, para não perder o acesso ao migrar.
 
-**Rede local confiável (`LAN_TRUSTED`).** Dispensa o login se **todos** estes indícios de rede local se verificarem:
-esquema `http` (sem `X-Forwarded-Proto: https`/`Forwarded: proto=https`), `Host` em `LAN_HOSTS` e IP do cliente
-privado (o **último** valor do `X-Forwarded-For`, só confiado se o par TCP for o proxy). Basta um indício de acesso
-externo para exigir login. O `deploy/94-tuya-power.conf` não sobrescreve o `X-Forwarded-Proto`.
+### Login OIDC (`app/auth.py`)
+Authorization Code com **PKCE** e `nonce`, sobre o `httpx`, para qualquer fornecedor OpenID Connect com descoberta
+(`{issuer}/.well-known/openid-configuration`). O `id_token` é validado como JWT: só **RS256** (recusa `none` e `HS256`),
+assinatura pelo JWKS (em cache 1 hora; se o `kid` for desconhecido volta a obtê-lo uma vez, para a rotação de chaves) e
+`iss`, `aud`, `exp`, `iat`, `sub` e `nonce`. **Com inscrições abertas exige-se o email verificado**
+(`OIDC_REQUIRE_VERIFIED_EMAIL`, por omissão `true`): sem isso, alguém poderia inscrever-se com o email de outra pessoa.
+O `OIDC_ISSUER` tem de ser `https://`. A sessão é um cookie assinado e próprio (`tuya_power_session`, `HttpOnly`,
+`SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`; assinatura com `SECRET_KEY` ou um segredo gerado em
+`<pasta de dados>/.session_secret`) que só guarda o id do utilizador; o papel e o estado vêm sempre da base.
 
-**Testes** (IdP simulado, JWT assinados com uma chave gerada no teste, sem rede): `python tests/test_auth.py`
-(verificações: palavra-passe, fluxo OIDC, validação do JWT — nonce, audiência, emissor, expiração, assinatura,
-`alg=none`/`HS256`, rotação de chaves —, autorização por email, regra LAN com cabeçalhos forjados e ausência de
-configuração).
+Sem sessão, o utilizador é levado **automaticamente** ao fornecedor (`/auth/sso`), sem página nem botão intermédio, e
+volta ao endereço que pediu. A página `/auth/login` só aparece quando há algo a dizer («aguarda aprovação», recusado,
+desativado, email por verificar, erro do fornecedor, «Sessão terminada»), com uma ligação para tentar de novo
+(`/auth/sso?prompt=login`, que obriga o fornecedor a pedir as credenciais outra vez; sem isso o Auth0, que mantém a sessão
+dele, reentrava sozinho). Fragmentos HTMX e `fetch` sem sessão recebem 401 e levam o navegador ao fornecedor.
+
+### Configurar o Auth0 (plano gratuito; aceita `http://` com um nome da LAN no endereço de retorno)
+1. Crie um *tenant* e uma aplicação **Regular Web Application**, com
+   `Allowed Callback URLs = http://lambdacore/power/auth/callback` (correspondência exata: um URL por nome ou IP).
+2. Em *Authentication → Database* **deixe os registos abertos** (é assim que as pessoas se inscrevem) e confirme que o
+   Auth0 envia o email de verificação. Em *Applications → a sua aplicação → Connections* deixe só a ligação desejada.
+3. No `.env` da pasta de dados: `OIDC_ISSUER=https://<tenant>.<região>.auth0.com`, `OIDC_CLIENT_ID`,
+   `OIDC_CLIENT_SECRET`, `OIDC_NAME=Auth0`, `WEB_PREFIX=/power` e **`ADMIN_EMAILS=<o seu email>`**.
+4. `docker restart tuya-power`.
+
+**Limites.** O login depende da internet (o contentor liga ao Auth0; as sessões abertas duram 7 dias; para ter alternativa,
+retire a configuração OIDC e use a palavra-passe). Na LAN o tráfego é HTTP: o `id_token` não passa pelo navegador, mas o
+cookie de sessão pode ser lido na rede. O Auth0 guarda os emails (terceiro). Não há HTTPS externo, logo não se usam
+fornecedores que o exijam (Google, Microsoft). «Terminar sessão» fecha só a sessão da app (a do Auth0 mantém-se).
+
+### Palavra-passe e rede local confiável
+A **palavra-passe** (HTTP Basic) só é usada enquanto o OIDC **não** estiver configurado; com OIDC é ignorada e `/auth/basic`
+não existe. Tem o papel Admin. A **rede local confiável** (`LAN_TRUSTED=true`, desligada) dispensa o login se **todos** estes
+indícios de rede local se verificarem: esquema `http` (sem `X-Forwarded-Proto: https`/`Forwarded: proto=https`), `Host`
+em `LAN_HOSTS` e IP do cliente privado (o **último** valor do `X-Forwarded-For`, só confiado se o par TCP for o proxy);
+basta um indício de acesso externo para exigir login. Tem o papel User. O `deploy/94-tuya-power.conf` não sobrescreve o
+`X-Forwarded-Proto`.
+
+**Testes** (IdP simulado, JWT assinados com uma chave gerada no teste, base de dados temporária, sem rede):
+`python tests/test_auth.py`: palavra-passe, fluxo OIDC, validação do JWT (nonce, audiência, emissor, expiração,
+assinatura, `alg=none`/`HS256`, rotação de chaves), utilizadores (pendente, aprovar, rejeitar, desativar a meio da sessão,
+reativar, promover/despromover, proteções do próprio Admin), permissões por papel, regra LAN e ausência de configuração.
 
 ## Contentor (Docker)
 

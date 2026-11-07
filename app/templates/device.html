@@ -35,7 +35,7 @@
 {% else %}<p class="mut">Sem funções disponíveis.</p>{% endfor %}
 </div></div>
 
-<div class="card tab-pane" id="tab-alarmes" hidden><div class="card-h"><h3>Alarmes e limites</h3><button type="button" class="edit-btn" data-target="#alarms"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="bt">Editar</span></button></div>
+<div class="card tab-pane" id="tab-alarmes" hidden><div class="card-h"><h3>Alarmes e limites</h3>{% if request.state.user and request.state.user.role == 'admin' %}<button type="button" class="edit-btn" data-target="#alarms"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="bt">Editar</span></button>{% endif %}</div>
   <div id="alarms" hx-get="{{ P(request) }}/device/{{ d.id }}/alarms" hx-trigger="load">a carregar…</div></div>
 
 <div class="card tab-pane" id="tab-historico" hidden><div class="card-h"><h3>Histórico (base de dados local)</h3>

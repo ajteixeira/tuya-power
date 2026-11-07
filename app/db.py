@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS logs(
 CREATE INDEX IF NOT EXISTS ix_logs_dev ON logs(device_id, code, event_time);
 CREATE TABLE IF NOT EXISTS sync_runs(
   id INTEGER PRIMARY KEY, started INTEGER, finished INTEGER, new_rows INTEGER, error TEXT);
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, name TEXT,
+  role TEXT NOT NULL DEFAULT 'user',        -- admin | user
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending | active | rejected | disabled
+  created_at INTEGER, last_login INTEGER, approved_at INTEGER, approved_by TEXT);
 CREATE TABLE IF NOT EXISTS sync_state(device_id TEXT PRIMARY KEY, last_event_time INTEGER);
 """
 
