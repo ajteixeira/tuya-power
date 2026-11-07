@@ -1,5 +1,5 @@
-<div class="tile">
-{% if sw is not none %}<span class="sw {{ 'on' if sw else 'off' }}">⏻ {{ 'Ligado' if sw else 'Desligado' }}</span>{% endif %}
+<div class="tile" style="align-items:center">
+{% if sw is not none %}<span class="sw {{ 'on' if sw else 'off' }}" title="{{ 'Ligado' if sw else 'Desligado' }}"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v9M6.3 6.6a8 8 0 1 0 11.4 0"/></svg></span><b>{{ 'Ligado' if sw else 'Desligado' }}</b>{% endif %}
 {% if power %}<span class="mut">⚡ {{ power }}</span>{% endif %}
 {% if temp %}<span>🌡 <b>{{ temp }}</b></span>{% endif %}
 {% if hum %}<span>💧 <b>{{ hum }}</b></span>{% endif %}
