@@ -208,9 +208,12 @@ volta a obtê-lo uma vez, para a rotação de chaves) e verificação de `iss`, 
 Entram só os emails em `OIDC_ALLOWED_EMAILS` (vírgulas; **vazio = ninguém**) com email verificado
 (`OIDC_REQUIRE_VERIFIED_EMAIL=false` confia só na lista). O `OIDC_ISSUER` tem de ser `https://`. A sessão é um
 cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`;
-assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, a **página de entrada é o login**: quem
-não tem sessão é levado a `/auth/login`, que só oferece o botão do fornecedor. Sem OIDC, o navegador pede a
-palavra-passe (HTTP Basic). Fragmentos HTMX e `fetch` sem sessão recebem 401 e levam o navegador ao login.
+assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, quem não tem sessão é levado **automaticamente** ao
+login do fornecedor (`/auth/sso`), sem página nem botão intermédio, e volta ao endereço que pediu. A página
+`/auth/login` só aparece quando há algo a dizer (conta sem acesso, erro do fornecedor, «Sessão terminada»), com uma
+ligação para tentar de novo; assim uma recusa não entra em ciclo e o «Terminar sessão» não volta a entrar sozinho (o
+Auth0 manteria a sessão do lado dele). Sem OIDC, o navegador pede a palavra-passe (HTTP Basic). Fragmentos HTMX e
+`fetch` sem sessão recebem 401 e levam o navegador ao fornecedor.
 
 **Ativar com o Auth0** (plano gratuito; o Auth0 aceita `http://` com um nome da LAN no endereço de retorno)
 1. Em auth0.com crie um *tenant* e uma aplicação do tipo **Regular Web Application**.

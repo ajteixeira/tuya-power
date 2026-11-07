@@ -68,7 +68,7 @@
 <script>
 const id="{{ d.id }}",BASE="{{ P(request) }}";let chart;
 // Sessão expirada (401): voltar ao login em vez de falhar em silêncio
-async function jget(u){const r=await fetch(u);if(r.status===401){location.href=BASE+'/auth/login';return new Promise(()=>{});}return r.json();}
+async function jget(u){const r=await fetch(u);if(r.status===401){location.href=BASE+'/auth/sso';return new Promise(()=>{});}return r.json();}
 // Valor por período a partir de um contador acumulado: último valor de cada hora/dia/mês menos o do período anterior
 function deltas(pts,unit,sum){  // sum: os valores são incrementos (somar) em vez de um contador (diferença)
   const key=d=>unit==='hour'?[d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()]:unit==='day'?[d.getFullYear(),d.getMonth(),d.getDate()]:unit==='month'?[d.getFullYear(),d.getMonth()]:[d.getFullYear()];

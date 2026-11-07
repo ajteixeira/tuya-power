@@ -3,9 +3,9 @@
 <div class="card" style="max-width:420px;margin:48px auto;text-align:center">
   <h2 style="margin-top:0">Tuya-Power</h2>
   {% if error %}<p class="err">{{ error }}</p>{% endif %}
+  {% if info %}<p class="mut">{{ info }}</p>{% endif %}
   {% if oidc %}
-    <p class="mut">Entre com a sua conta autorizada.</p>
-    <p><a class="gbtn" href="{{ P(request) }}/auth/sso">Entrar com {{ oidc_name }}</a></p>
+    <p><a class="gbtn" href="{{ P(request) }}/auth/sso">Entrar de novo com {{ oidc_name }}</a></p>
   {% endif %}
   {% if password %}
     <p><a href="{{ P(request) }}/auth/basic">Entrar com utilizador e palavra-passe</a></p>

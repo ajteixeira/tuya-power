@@ -171,7 +171,8 @@ async def require_login(request: Request, cred: HTTPBasicCredentials | None = De
         return
     if not oidc_enabled() and password_enabled():  # só palavra-passe: o navegador pede-a (HTTP Basic)
         raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
-    login = f"{prefix(request)}/auth/login"
+    # Com OIDC, sem sessão vai-se direto ao fornecedor (sem página/botão intermédio); sem OIDC, à página que avisa
+    login = f"{prefix(request)}/auth/{'sso' if oidc_enabled() else 'login'}"
     if request.headers.get("hx-request"):  # fragmentos HTMX: o navegador redireciona a página inteira
         raise HTTPException(401, "Sessão necessária", headers={"HX-Redirect": login})
     if "text/html" not in request.headers.get("accept", ""):  # fetch/JSON
@@ -187,12 +188,17 @@ def _page(request: Request, status: int, **ctx):
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = ""):
+async def login_page(request: Request, error: str = "", msg: str = ""):
+    """Só mostra uma página quando há algo a dizer (recusa, erro, sessão terminada); sem mensagem, e com OIDC,
+    segue direto para o fornecedor."""
     if request.session.get("user"):
         return RedirectResponse(prefix(request) + "/", 303)
-    msgs = {"denied": "Esta conta não tem acesso.", "state": "O pedido de login expirou. Tente de novo.",
-            "idp": "O fornecedor de login recusou ou falhou (ou o token é inválido)."}
-    return _page(request, 200, error=msgs.get(error, ""))
+    if oidc_enabled() and not error and not msg:
+        return RedirectResponse(prefix(request) + "/auth/sso", 303)
+    errors = {"denied": "Esta conta não tem acesso.", "state": "O pedido de login expirou. Tente de novo.",
+              "idp": "O fornecedor de login recusou ou falhou (ou o token é inválido)."}
+    info = {"bye": "Sessão terminada."}
+    return _page(request, 200, error=errors.get(error, ""), info=info.get(msg, ""))
 
 
 @router.get("/basic")
@@ -261,4 +267,4 @@ async def callback(request: Request, code: str = "", state: str = "", error: str
 @router.post("/logout")
 async def logout(request: Request):
     request.session.clear()
-    return RedirectResponse(prefix(request) + "/auth/login", 303)
+    return RedirectResponse(prefix(request) + "/auth/login?msg=bye", 303)

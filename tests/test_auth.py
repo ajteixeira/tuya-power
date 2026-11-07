@@ -86,12 +86,15 @@ def denied_with(label, setup, expect="error=idp"):
 # --- sem sessão ---
 c = client()
 r = c.get("/", headers=HTML, follow_redirects=False)
-check("HTML sem sessão -> 303 para /auth/login", r.status_code == 303 and r.headers["location"].endswith("/auth/login"))
+check("HTML sem sessão -> 303 direto para /auth/sso (sem página/botão)", r.status_code == 303 and r.headers["location"].endswith("/auth/sso"))
 r = c.get("/device/x/status", headers={"hx-request": "true"})
-check("HTMX sem sessão -> 401 + HX-Redirect", r.status_code == 401 and "hx-redirect" in r.headers)
+check("HTMX sem sessão -> 401 + HX-Redirect para /auth/sso", r.status_code == 401 and r.headers.get("hx-redirect", "").endswith("/auth/sso"))
 check("fetch/JSON sem sessão -> 401", c.get("/device/x/codes").status_code == 401)
-r = c.get("/auth/login")
-check("página de login com o botão do fornecedor", r.status_code == 200 and "Entrar com SSO" in r.text)
+r = c.get("/auth/login", follow_redirects=False)
+check("/auth/login sem mensagem -> 303 para /auth/sso (não mostra página)", r.status_code == 303 and r.headers["location"].endswith("/auth/sso"))
+r = c.get("/auth/login?error=denied")
+check("/auth/login com recusa mostra a mensagem e a ligação para tentar de novo (sem redirecionar em ciclo)",
+      r.status_code == 200 and "não tem acesso" in r.text and "Entrar de novo com SSO" in r.text)
 idp.reset()
 r = c.get("/auth/sso", follow_redirects=False)
 loc = r.headers["location"]
@@ -111,6 +114,8 @@ check("com sessão: / -> 200", c.get("/").status_code == 200)
 check("cabeçalho mostra o email e 'Terminar sessão'", "ok@x.com" in c.get("/").text and "Terminar sessão" in c.get("/").text)
 r = c.post("/auth/logout", follow_redirects=False)
 check("logout limpa a sessão", r.status_code == 303 and c.get("/", headers=HTML, follow_redirects=False).status_code == 303)
+check("logout leva à página 'Sessão terminada' (não volta a entrar sozinho)",
+      r.headers["location"].endswith("/auth/login?msg=bye") and "Sessão terminada" in c.get("/auth/login?msg=bye").text)
 
 # --- validação do JWT ---
 denied_with("nonce errado", lambda: idp.claims.update(nonce="outro"))
@@ -188,12 +193,12 @@ check("só palavra-passe: fetch/JSON com credenciais -> não 401", c.get("/devic
 check("só palavra-passe: HTMX sem credenciais -> 401", c.get("/device/x/status", headers={"hx-request": "true"}).status_code == 401)
 settings.oidc_client_id = "cid"   # OIDC configurado: a palavra-passe deixa de valer
 c = client()
-check("com OIDC ativo: sem credenciais -> redireciona para o login", c.get("/", headers=HTML, follow_redirects=False).status_code == 303)
+check("com OIDC ativo: sem credenciais -> redireciona para o fornecedor", c.get("/", headers=HTML, follow_redirects=False).status_code == 303)
 check("com OIDC ativo: HTTP Basic certo é ignorado (continua a pedir login)",
       c.get("/", headers={**HTML, **basic("admin", "segredo")}, follow_redirects=False).status_code == 303)
 check("com OIDC ativo: fetch/JSON com HTTP Basic certo -> 401", c.get("/device/x/codes", headers=basic("admin", "segredo")).status_code == 401)
-pg = c.get("/auth/login").text
-check("página de login só oferece o fornecedor (sem palavra-passe)", "Entrar com SSO" in pg and "palavra-passe" not in pg)
+pg = c.get("/auth/login?error=denied").text
+check("página de erro só oferece o fornecedor (sem palavra-passe)", "Entrar de novo com SSO" in pg and "palavra-passe" not in pg)
 check("com OIDC ativo: /auth/basic não existe (404)", c.get("/auth/basic", headers=basic("admin", "segredo"), follow_redirects=False).status_code == 404)
 check("com OIDC ativo: /auth/basic não cria sessão", c.get("/", headers=HTML, follow_redirects=False).status_code == 303)
 settings.web_password = ""
