@@ -1,3 +1,3 @@
 name: tuya-power
 channels: [conda-forge]
-dependencies: [python=3.12, fastapi, uvicorn, httpx, apscheduler, jinja2, python-multipart, pydantic-settings, python-dotenv]
+dependencies: [python=3.12, fastapi, uvicorn, httpx, apscheduler, jinja2, python-multipart, pydantic-settings, python-dotenv, itsdangerous]

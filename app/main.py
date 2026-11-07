@@ -2,7 +2,6 @@ import asyncio
 import base64
 import binascii
 import json
-import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -12,27 +11,17 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from markupsafe import Markup
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
-from . import db
+from starlette.middleware.sessions import SessionMiddleware
+
+from . import auth, db
 from .config import settings
 from .sync import run_sync
 from .tuya import TuyaError, tuya
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=BASE / "templates")
-security = HTTPBasic(auto_error=False)
-
-
-def auth(cred: HTTPBasicCredentials = Depends(security)):
-    if not settings.web_password:
-        return
-    ok = cred and secrets.compare_digest(cred.username, settings.web_user) \
-        and secrets.compare_digest(cred.password, settings.web_password)
-    if not ok:
-        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
-
 
 scheduler = AsyncIOScheduler()
 
@@ -70,7 +59,12 @@ class ForwardedPrefixMiddleware:
         await self.app(scope, receive, send)
 
 
-app = FastAPI(lifespan=lifespan, dependencies=[Depends(auth)])
+app = FastAPI(lifespan=lifespan, dependencies=[Depends(auth.require_login)])
+app.include_router(auth.router)
+# Sessão (cookie próprio, no caminho do prefixo, para não colidir com /sc e /ytd); o prefixo trata-se primeiro
+app.add_middleware(SessionMiddleware, secret_key=auth.session_secret(), session_cookie="tuya_power_session",
+                   path=settings.web_prefix or "/", max_age=7 * 86400, same_site="lax",
+                   https_only=settings.auth_redirect_uri.startswith("https://"))
 app.add_middleware(ForwardedPrefixMiddleware)
 
 
@@ -88,6 +82,7 @@ def _dt(ms, fmt="datetime"):
 
 
 templates.env.filters["dt"] = _dt
+auth.templates = templates
 templates.env.globals["P"] = lambda request: request.scope.get("tp_prefix", "")  # prefixo do proxy (ex.: /power)
 
 

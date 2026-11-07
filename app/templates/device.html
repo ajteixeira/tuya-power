@@ -67,6 +67,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 const id="{{ d.id }}",BASE="{{ P(request) }}";let chart;
+// Sessão expirada (401): voltar ao login em vez de falhar em silêncio
+async function jget(u){const r=await fetch(u);if(r.status===401){location.href=BASE+'/auth/login';return new Promise(()=>{});}return r.json();}
 // Valor por período a partir de um contador acumulado: último valor de cada hora/dia/mês menos o do período anterior
 function deltas(pts,unit,sum){  // sum: os valores são incrementos (somar) em vez de um contador (diferença)
   const key=d=>unit==='hour'?[d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()]:unit==='day'?[d.getFullYear(),d.getMonth(),d.getDate()]:unit==='month'?[d.getFullYear(),d.getMonth()]:[d.getFullYear()];
@@ -97,7 +99,7 @@ async function draw(){
   document.getElementById('plabel').textContent=label();
   document.getElementById('next').disabled=e0>Date.now();
   document.querySelectorAll('#mode .stab').forEach(b=>b.setAttribute('aria-selected',b.dataset.m===st.mode));
-  const h=await (await fetch(`${BASE}/device/${id}/history?code=${code}&since=${s0}&until=${e0}`)).json();
+  const h=await jget(`${BASE}/device/${id}/history?code=${code}&since=${s0}&until=${e0}`);
   // consumo do 1.º período = último valor dele menos o último valor antes do intervalo
   const pts=delta?deltas(h.before?[h.before,...h.points]:h.points,unit,AGG[sel]==='sum').filter(p=>p.x>=s0&&p.x<e0):h.points;
   // Cartão com o total do período (soma das barras)
@@ -120,7 +122,7 @@ async function draw(){
               x:{type:'time',min:s0,max:e0,offset:delta,time:{unit},ticks:{maxRotation:0,autoSkipPadding:12,callback:(v,i,t)=>tick(t[i].value)}}},
       plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>new Date(it[0].parsed.x).toLocaleString(undefined,delta?tipFmt:{dateStyle:'short',timeStyle:'medium',hourCycle:'h23'})}}}}});
 }
-(async()=>{const cs=await (await fetch(`${BASE}/device/${id}/codes`)).json();
+(async()=>{const cs=await jget(`${BASE}/device/${id}/codes`);
   cs.forEach(c=>AGG[c.id]=c.agg);
   const s=document.getElementById('code');s.innerHTML=cs.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
   document.getElementById('nochart').hidden=cs.length>0;document.getElementById('hf').hidden=cs.length==0;

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}Entrar{% endblock %}
+{% block content %}
+<div class="card" style="max-width:420px;margin:48px auto;text-align:center">
+  <h2 style="margin-top:0">Tuya-Power</h2>
+  {% if error %}<p class="err">{{ error }}</p>{% endif %}
+  {% if google %}
+    <p class="mut">Entre com a sua conta Google autorizada.</p>
+    <p><a class="gbtn" href="{{ P(request) }}/auth/google">Entrar com Google</a></p>
+  {% else %}
+    <p class="err">O login Google não está configurado.</p>
+  {% endif %}
+</div>
+{% endblock %}

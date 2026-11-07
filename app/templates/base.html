@@ -57,9 +57,13 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 .ptile{display:inline-flex;min-width:240px;align-items:flex-end;text-align:right}
 .pnav{display:inline-flex;align-items:center;gap:8px}.pnav button{height:34px;width:34px;padding:0;font-size:18px}
 .pnav button:disabled{opacity:.4;cursor:not-allowed}#plabel{min-width:170px;text-align:center;font-weight:600;text-transform:capitalize}
+.top{display:flex;justify-content:space-between;align-items:center}.who{display:flex;gap:10px;align-items:center;margin:0}
+.who button{height:30px;padding:0 10px;font-size:13px}
+.gbtn{display:inline-block;padding:10px 18px;border-radius:8px;background:var(--acc);color:#fff;text-decoration:none;font-weight:600}
 form.inline{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 </style></head><body>
-<header><a href="{{ P(request) }}/">⚡ Tuya Power</a></header>
+<header class="top"><a href="{{ P(request) }}/">⚡ Tuya Power</a>
+  {% if request.session.get('user') %}<form method="post" action="{{ P(request) }}/auth/logout" class="who"><span class="mut">{{ request.session['user']['email'] }}</span><button class="sec">Terminar sessão</button></form>{% endif %}</header>
 <main>{% block content %}{% endblock %}</main>
 <script>
 // Datas/horas no formato e fuso das definições do sistema onde corre o navegador
