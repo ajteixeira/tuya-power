@@ -1,5 +1,6 @@
 {% extends "base.html" %}{% block title %}{{ d.name }}{% endblock %}
 {% block content %}
+<p style="margin:0 0 8px"><a href="{{ P(request) }}/" class="back">← Todos os dispositivos</a></p>
 <h2><span class="dot {{ 'on' if d.online }}"></span>{{ d.name }} <small class="mut">{{ d.product_name }}</small></h2>
 
 <nav class="tabs" role="tablist">
