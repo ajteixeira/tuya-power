@@ -192,12 +192,14 @@ combinam; sem nenhum configurado ninguém entra (fecha por omissão):
 
 | Mecanismo | Ativação | Para quê |
 |---|---|---|
-| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD` | Acesso pela LAN: o navegador pede utilizador e palavra-passe. |
+| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD` | Acesso pela LAN: o navegador pede utilizador e palavra-passe. **Só vale quando o OIDC não está configurado**; com OIDC é ignorada. |
 | **Login OIDC** (Auth0, Google…) | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ALLOWED_EMAILS` | OAuth2 com validação do `id_token` (JWT). Desligado enquanto não houver configuração. |
 | **Rede local confiável** | `LAN_TRUSTED=true` | Dispensa o login a pedidos da LAN. **Desligado**: qualquer equipamento da rede poderia alterar os limites do disjuntor. |
 
-**Palavra-passe.** Altere-a no `.env` da pasta de dados e reinicie o contentor (ver «Contentor»). Sem
-`WEB_PASSWORD` fica desligada (e, sem OIDC nem LAN confiável, o site recusa tudo).
+**Palavra-passe.** Só é usada enquanto o OIDC **não** estiver configurado (é a alternativa simples em HTTP): altere-a
+no `.env` da pasta de dados e reinicie o contentor. Com o OIDC configurado a palavra-passe é ignorada (o HTTP Basic
+não é aceite e `/auth/basic` não existe), mesmo que `WEB_PASSWORD` continue no ficheiro. Sem nenhum dos dois, e sem
+LAN confiável, o site recusa tudo.
 
 **Login OIDC (`app/auth.py`).** Authorization Code com **PKCE** e `nonce`, sobre o `httpx`, para qualquer
 fornecedor OpenID Connect com descoberta (`{issuer}/.well-known/openid-configuration`). O `id_token` é validado como
@@ -206,10 +208,9 @@ volta a obtê-lo uma vez, para a rotação de chaves) e verificação de `iss`, 
 Entram só os emails em `OIDC_ALLOWED_EMAILS` (vírgulas; **vazio = ninguém**) com email verificado
 (`OIDC_REQUIRE_VERIFIED_EMAIL=false` confia só na lista). O `OIDC_ISSUER` tem de ser `https://`. A sessão é um
 cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`;
-assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, quem não
-tem sessão é levado a `/auth/login`, que oferece o fornecedor e, se existir `WEB_PASSWORD`, «Entrar com utilizador e
-palavra-passe» (`/auth/basic`, que troca a palavra-passe por uma sessão). Fragmentos HTMX e `fetch` sem sessão
-recebem 401 e levam o navegador ao login.
+assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, a **página de entrada é o login**: quem
+não tem sessão é levado a `/auth/login`, que só oferece o botão do fornecedor. Sem OIDC, o navegador pede a
+palavra-passe (HTTP Basic). Fragmentos HTMX e `fetch` sem sessão recebem 401 e levam o navegador ao login.
 
 **Ativar com o Auth0** (plano gratuito; o Auth0 aceita `http://` com um nome da LAN no endereço de retorno)
 1. Em auth0.com crie um *tenant* e uma aplicação do tipo **Regular Web Application**.
@@ -223,7 +224,7 @@ recebem 401 e levam o navegador ao login.
 5. `docker restart tuya-power`. O endereço de retorno deduz-se do `Host` do pedido (ou fixe-o em `AUTH_REDIRECT_URI`).
 
 **Limites desta configuração.** O login depende da internet (o contentor liga ao Auth0; as sessões abertas duram 7
-dias, e a palavra-passe serve de alternativa). Na LAN o tráfego é HTTP: o `id_token` não passa pelo navegador, mas o
+dias, e, para ter alternativa, retire a configuração OIDC e use a palavra-passe). Na LAN o tráfego é HTTP: o `id_token` não passa pelo navegador, mas o
 cookie de sessão pode ser lido na rede. O Auth0 guarda os emails (serviço de terceiros). Sem HTTPS externo não há como
 usar fornecedores que o exigem no retorno (Google, Microsoft).
 
@@ -233,7 +234,7 @@ privado (o **último** valor do `X-Forwarded-For`, só confiado se o par TCP for
 externo para exigir login. O `deploy/94-tuya-power.conf` não sobrescreve o `X-Forwarded-Proto`.
 
 **Testes** (IdP simulado, JWT assinados com uma chave gerada no teste, sem rede): `python tests/test_auth.py`
-(55 verificações: palavra-passe, fluxo OIDC, validação do JWT — nonce, audiência, emissor, expiração, assinatura,
+(verificações: palavra-passe, fluxo OIDC, validação do JWT — nonce, audiência, emissor, expiração, assinatura,
 `alg=none`/`HS256`, rotação de chaves —, autorização por email, regra LAN com cabeçalhos forjados e ausência de
 configuração).
 

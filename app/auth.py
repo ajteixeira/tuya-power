@@ -1,5 +1,5 @@
-"""Autenticação: palavra-passe (HTTP Basic), login OIDC (Auth0, Google... com Authorization Code + PKCE e
-validação do id_token em JWT, opcional) e regra de «rede local confiável» (opcional).
+"""Autenticação: login OIDC (Auth0, Google... com Authorization Code + PKCE e validação do id_token em JWT)
+quando configurado; senão palavra-passe (HTTP Basic). Mais a regra de «rede local confiável» (opcional).
 
 Fecha por omissão: sem credenciais válidas, sem sessão OIDC e sem LAN_TRUSTED=true ninguém entra. Na regra
 LAN basta um indício de acesso externo (https, host desconhecido, IP público) para exigir login.
@@ -8,6 +8,7 @@ import base64
 import hashlib
 import ipaddress
 import asyncio
+import logging
 import secrets
 import time
 from pathlib import Path
@@ -22,6 +23,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from .config import settings
 
 router = APIRouter(prefix="/auth")
+log = logging.getLogger("uvicorn.error")
 templates = None  # definido por main.py (mesmas globais/filtros das restantes páginas)
 
 basic = HTTPBasic(auto_error=False)
@@ -35,7 +37,8 @@ def http_client() -> httpx.AsyncClient:  # os testes substituem-no
 
 
 def password_enabled() -> bool:
-    return bool(settings.web_password)
+    """A palavra-passe (HTTP Basic) só vale quando o login OIDC NÃO está configurado."""
+    return bool(settings.web_password) and not oidc_enabled()
 
 
 def password_ok(cred: HTTPBasicCredentials | None) -> bool:
@@ -195,6 +198,8 @@ async def login_page(request: Request, error: str = ""):
 @router.get("/basic")
 async def basic_login(request: Request, cred: HTTPBasicCredentials | None = Depends(basic)):
     """Troca a palavra-passe (HTTP Basic) por uma sessão; usado a partir da página de login."""
+    if not password_enabled():
+        raise HTTPException(404)
     if not password_ok(cred):
         raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
     request.session["user"] = {"email": cred.username, "name": cred.username}
@@ -242,6 +247,9 @@ async def callback(request: Request, code: str = "", state: str = "", error: str
     email = str(claims.get("email", "")).lower()
     verified = claims.get("email_verified") is True or not settings.oidc_require_verified_email
     if not (email and verified and email in allowed_emails()):  # lista vazia nega tudo
+        motivo = ("sem email no token (scope email?)" if not email else "email não verificado (email_verified=%r)"
+                  % claims.get("email_verified") if not verified else "email fora de OIDC_ALLOWED_EMAILS")
+        log.warning("Login OIDC recusado: %s; email=%s", motivo, email or "-")
         return RedirectResponse(f"{login}?error=denied", 303)
     nxt = request.session.pop("next", "/")
     request.session["user"] = {"email": email, "name": claims.get("name", email)}

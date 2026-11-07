@@ -1,6 +1,7 @@
 """Testes da autenticação: palavra-passe, login OIDC (Auth0/Google simulado, id_token em JWT assinado com uma
 chave RSA gerada aqui) e regra da rede local. Sem rede. Uso: python tests/test_auth.py"""
 import base64
+import os
 import re
 import sys
 import time
@@ -10,6 +11,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+os.environ["ENV_FILE"] = "/nonexistent/.env"  # isola os testes do .env real (WEB_PREFIX, OIDC_*, palavra-passe...)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi.testclient import TestClient
 
@@ -184,14 +186,16 @@ check("só palavra-passe: palavra-passe errada -> 401", c.get("/", headers={**HT
 check("só palavra-passe: utilizador errado -> 401", c.get("/", headers={**HTML, **basic("outro", "segredo")}).status_code == 401)
 check("só palavra-passe: fetch/JSON com credenciais -> não 401", c.get("/device/x/codes", headers=basic("admin", "segredo")).status_code != 401)
 check("só palavra-passe: HTMX sem credenciais -> 401", c.get("/device/x/status", headers={"hx-request": "true"}).status_code == 401)
-settings.oidc_client_id = "cid"   # palavra-passe + OIDC
+settings.oidc_client_id = "cid"   # OIDC configurado: a palavra-passe deixa de valer
 c = client()
 check("com OIDC ativo: sem credenciais -> redireciona para o login", c.get("/", headers=HTML, follow_redirects=False).status_code == 303)
-check("página de login mostra o fornecedor e a palavra-passe", all(t in c.get("/auth/login").text for t in ("Entrar com SSO", "palavra-passe")))
-check("/auth/basic sem credenciais -> 401", c.get("/auth/basic", follow_redirects=False).status_code == 401)
-check("/auth/basic com palavra-passe errada -> 401", c.get("/auth/basic", headers=basic("admin", "errada"), follow_redirects=False).status_code == 401)
-r = c.get("/auth/basic", headers=basic("admin", "segredo"), follow_redirects=False)
-check("/auth/basic com credenciais certas -> sessão e 303", r.status_code == 303 and c.get("/").status_code == 200)
+check("com OIDC ativo: HTTP Basic certo é ignorado (continua a pedir login)",
+      c.get("/", headers={**HTML, **basic("admin", "segredo")}, follow_redirects=False).status_code == 303)
+check("com OIDC ativo: fetch/JSON com HTTP Basic certo -> 401", c.get("/device/x/codes", headers=basic("admin", "segredo")).status_code == 401)
+pg = c.get("/auth/login").text
+check("página de login só oferece o fornecedor (sem palavra-passe)", "Entrar com SSO" in pg and "palavra-passe" not in pg)
+check("com OIDC ativo: /auth/basic não existe (404)", c.get("/auth/basic", headers=basic("admin", "segredo"), follow_redirects=False).status_code == 404)
+check("com OIDC ativo: /auth/basic não cria sessão", c.get("/", headers=HTML, follow_redirects=False).status_code == 303)
 settings.web_password = ""
 
 print(f"\n{ok_n} ok, {fail_n} falhas")
