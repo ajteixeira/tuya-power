@@ -9,7 +9,8 @@
 {% for d in devs %}
   <a class="card" href="{{ P(request) }}/device/{{ d.id }}" style="text-decoration:none;color:inherit">
     <div><span class="dot {{ 'on' if d.online }}"></span><b>{{ d.name }}</b></div>
-    <div class="mut">{{ d.product_name }}</div>
+    <div class="mut">{{ d.product_name|pt }}</div>
+    <div hx-get="{{ P(request) }}/device/{{ d.id }}/tile" hx-trigger="load, every 30s" hx-swap="innerHTML">&nbsp;</div>
   </a>
 {% else %}<p class="mut">Sem dispositivos. Configure o .env e clique em «Sincronizar agora».</p>{% endfor %}
 </div>{% endblock %}

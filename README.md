@@ -7,7 +7,9 @@ histórico local completo, estado online, controlo, configuração e consulta de
 
 1. **Histórico local:** descarga incremental e sem duplicados para SQLite, de hora a hora (cron) e
    1x por dia pelo próprio site (predefinição 03:00), mais o botão manual «Sincronizar agora».
-2. **Estado online** de cada dispositivo (atualização a cada 5 s).
+2. **Estado online** de cada dispositivo (atualização a cada 5 s). Na página geral, cada cartão mostra um resumo (a cada 30 s):
+   disjuntores e tomadas com «Ligado/Desligado» (verde/vermelho) e a potência instantânea; termómetros com a
+   temperatura e a humidade. Os nomes de produto em chinês aparecem traduzidos para português.
 3. **Ligar, desligar e ajustar** (interruptores, números, listas, texto), com os controlos
    bloqueados até se carregar em «Editar».
 4. **Configuração:** as funções configuráveis declaradas pela Tuya.

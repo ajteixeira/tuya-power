@@ -2,6 +2,7 @@ import asyncio
 import base64
 import binascii
 import json
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -231,6 +232,55 @@ def get_device(dev_id):
     if not row:
         raise HTTPException(404, "Dispositivo desconhecido (execute a sincronização).")
     return row
+
+
+PRODUCT_PT = {
+    "WIFI智能计量断路器-1P/2P": "Disjuntor inteligente WiFi com medição (1P/2P)",
+    "温湿度传感器wifi": "Sensor de temperatura e humidade WiFi",
+    "单相彩屏": "Contador monofásico com ecrã a cores",
+}
+_ZH_WORDS = [("智能", "inteligente "), ("计量", "medição "), ("断路器", "disjuntor "), ("温湿度", "temperatura e humidade "),
+             ("传感器", "sensor "), ("单相", "monofásico "), ("三相", "trifásico "), ("彩屏", "ecrã a cores "),
+             ("插座", "tomada "), ("开关", "interruptor "), ("电表", "contador "), ("电能", "energia ")]
+
+
+def product_pt(name):
+    """Traduz para português os nomes de produto em chinês (os restantes ficam como estão)."""
+    name = name or ""
+    if name in PRODUCT_PT:
+        return PRODUCT_PT[name]
+    if not re.search(r"[\u4e00-\u9fff]", name):
+        return name
+    for zh, pt in _ZH_WORDS:
+        name = name.replace(zh, pt)
+    return re.sub(r"\s+", " ", name).strip()
+
+
+templates.env.filters["pt"] = product_pt
+
+
+@app.get("/device/{dev_id}/tile", response_class=HTMLResponse)
+async def tile(request: Request, dev_id: str):
+    """Resumo para o cartão da página geral: interruptor, potência, temperatura e humidade."""
+    d = get_device(dev_id)
+    funcs, stat = _spec(d)
+    try:
+        st = {x["code"]: x["value"] for x in await tuya.status(dev_id)}
+    except TuyaError:
+        return HTMLResponse('<div class="mut">sem ligação</div>')
+
+    def txt(code):
+        return _scaled(code, st[code], stat + funcs).split("  [", 1)[0]
+
+    sw = next((c for c in ("switch", "switch_1") if isinstance(st.get(c), bool)), None)
+    temp = next((c for c in ("va_temperature", "temp_current") if c in st), None)
+    hum = next((c for c in ("va_humidity", "humidity_value") if c in st), None)
+    if not hum:
+        temp = None  # só os termómetros mostram temperatura (nos disjuntores é interna)
+    return templates.TemplateResponse(request, "_tile.html", {
+        "sw": None if sw is None else st[sw],
+        "power": txt("cur_power") if "cur_power" in st else None,
+        "temp": txt(temp) if temp else None, "hum": txt(hum) if hum else None})
 
 
 @app.get("/", response_class=HTMLResponse)
