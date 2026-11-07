@@ -1,17 +1,20 @@
-"""Autenticação: palavra-passe (HTTP Basic), login Google (OAuth2 Authorization Code + PKCE, opcional) e
-regra de «rede local confiável» (opcional).
+"""Autenticação: palavra-passe (HTTP Basic), login OIDC (Auth0, Google... com Authorization Code + PKCE e
+validação do id_token em JWT, opcional) e regra de «rede local confiável» (opcional).
 
-Fecha por omissão: sem credenciais válidas, sem sessão Google e sem LAN_TRUSTED=true ninguém entra. Na regra
+Fecha por omissão: sem credenciais válidas, sem sessão OIDC e sem LAN_TRUSTED=true ninguém entra. Na regra
 LAN basta um indício de acesso externo (https, host desconhecido, IP público) para exigir login.
 """
 import base64
 import hashlib
 import ipaddress
+import asyncio
 import secrets
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -23,17 +26,12 @@ templates = None  # definido por main.py (mesmas globais/filtros das restantes p
 
 basic = HTTPBasic(auto_error=False)
 BASIC_CHALLENGE = {"WWW-Authenticate": 'Basic realm="Tuya Power"'}
-GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
-GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
+_cache: dict = {}  # descoberta OIDC e JWKS (1 hora)
+CACHE_SECONDS = 3600
 
 
 def http_client() -> httpx.AsyncClient:  # os testes substituem-no
     return httpx.AsyncClient(timeout=15)
-
-
-def google_enabled() -> bool:
-    return bool(settings.google_client_id and settings.google_client_secret)
 
 
 def password_enabled() -> bool:
@@ -46,8 +44,58 @@ def password_ok(cred: HTTPBasicCredentials | None) -> bool:
                 and secrets.compare_digest(cred.password.encode(), settings.web_password.encode()))
 
 
+def oidc_enabled() -> bool:
+    return bool(settings.oidc_issuer.startswith("https://") and settings.oidc_client_id and settings.oidc_client_secret)
+
+
 def allowed_emails() -> set[str]:
-    return {e.strip().lower() for e in settings.google_allowed_emails.split(",") if e.strip()}
+    return {e.strip().lower() for e in settings.oidc_allowed_emails.split(",") if e.strip()}
+
+
+async def _get_json(url: str) -> dict:
+    async with http_client() as c:
+        r = await c.get(url)
+        r.raise_for_status()
+        return r.json()
+
+
+async def oidc_meta() -> dict:
+    """Descoberta OIDC ({issuer}/.well-known/openid-configuration), em cache."""
+    hit = _cache.get("meta")
+    if hit and time.time() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    meta = await _get_json(settings.oidc_issuer.rstrip("/") + "/.well-known/openid-configuration")
+    for k in ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"):
+        if not meta.get(k):
+            raise ValueError(f"descoberta OIDC sem {k}")
+    _cache["meta"] = (time.time(), meta)
+    return meta
+
+
+async def signing_key(kid: str | None, meta: dict, refresh: bool = False):
+    """Chave pública do JWKS com o kid do token; se não existir, volta a obter o JWKS uma vez (rotação)."""
+    hit = _cache.get("jwks")
+    if refresh or not hit or time.time() - hit[0] >= CACHE_SECONDS:
+        _cache["jwks"] = hit = (time.time(), (await _get_json(meta["jwks_uri"])).get("keys", []))
+    for k in hit[1]:
+        if k.get("kid") == kid and k.get("kty") == "RSA":
+            return jwt.PyJWK.from_dict(k).key
+    if not refresh:
+        return await signing_key(kid, meta, refresh=True)
+    raise KeyError("chave de assinatura desconhecida")
+
+
+async def verify_id_token(token: str, nonce: str, meta: dict) -> dict:
+    """Valida o id_token (JWT): só RS256 (recusa none/HS256), assinatura pelo JWKS, iss, aud, exp, iat e nonce."""
+    header = jwt.get_unverified_header(token)
+    if header.get("alg") != "RS256":
+        raise ValueError("algoritmo não permitido")
+    key = await signing_key(header.get("kid"), meta)
+    claims = jwt.decode(token, key, algorithms=["RS256"], audience=settings.oidc_client_id, issuer=meta["issuer"],
+                        options={"require": ["exp", "iat", "iss", "aud", "sub"]}, leeway=60)
+    if not secrets.compare_digest(str(claims.get("nonce", "")), nonce):
+        raise ValueError("nonce inválido")
+    return claims
 
 
 def session_secret() -> str:
@@ -118,7 +166,7 @@ async def require_login(request: Request, cred: HTTPBasicCredentials | None = De
         return
     if request.session.get("user") or is_lan(request) or password_ok(cred):
         return
-    if not google_enabled() and password_enabled():  # só palavra-passe: o navegador pede-a (HTTP Basic)
+    if not oidc_enabled() and password_enabled():  # só palavra-passe: o navegador pede-a (HTTP Basic)
         raise HTTPException(401, "Autenticação necessária", headers=BASIC_CHALLENGE)
     login = f"{prefix(request)}/auth/login"
     if request.headers.get("hx-request"):  # fragmentos HTMX: o navegador redireciona a página inteira
@@ -131,7 +179,7 @@ async def require_login(request: Request, cred: HTTPBasicCredentials | None = De
 
 
 def _page(request: Request, status: int, **ctx):
-    return templates.TemplateResponse(request, "login.html", {"google": google_enabled(), "password": password_enabled(), **ctx},
+    return templates.TemplateResponse(request, "login.html", {"oidc": oidc_enabled(), "oidc_name": settings.oidc_name, "password": password_enabled(), **ctx},
                                       status_code=status)
 
 
@@ -139,8 +187,8 @@ def _page(request: Request, status: int, **ctx):
 async def login_page(request: Request, error: str = ""):
     if request.session.get("user"):
         return RedirectResponse(prefix(request) + "/", 303)
-    msgs = {"denied": "Esta conta Google não tem acesso.", "state": "O pedido de login expirou. Tente de novo.",
-            "google": "A Google recusou ou falhou o login."}
+    msgs = {"denied": "Esta conta não tem acesso.", "state": "O pedido de login expirou. Tente de novo.",
+            "idp": "O fornecedor de login recusou ou falhou (ou o token é inválido)."}
     return _page(request, 200, error=msgs.get(error, ""))
 
 
@@ -154,17 +202,22 @@ async def basic_login(request: Request, cred: HTTPBasicCredentials | None = Depe
     return RedirectResponse(prefix(request) + (nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"), 303)
 
 
-@router.get("/google")
+@router.get("/sso")
 async def start(request: Request):
-    if not google_enabled():
-        raise HTTPException(403, "Login Google não configurado")
-    state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
+    if not oidc_enabled():
+        raise HTTPException(403, "Login OIDC não configurado")
+    login = prefix(request) + "/auth/login"
+    try:
+        meta = await oidc_meta()
+    except (httpx.HTTPError, ValueError, KeyError):
+        return RedirectResponse(f"{login}?error=idp", 303)
+    state, nonce, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(32), secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    request.session["oauth"] = {"state": state, "verifier": verifier}
-    qs = urlencode({"client_id": settings.google_client_id, "redirect_uri": _redirect_uri(request),
-                    "response_type": "code", "scope": "openid email profile", "state": state,
-                    "code_challenge": challenge, "code_challenge_method": "S256", "prompt": "select_account"})
-    return RedirectResponse(f"{GOOGLE_AUTH}?{qs}", 303)
+    request.session["oauth"] = {"state": state, "nonce": nonce, "verifier": verifier}
+    qs = urlencode({"client_id": settings.oidc_client_id, "redirect_uri": _redirect_uri(request),
+                    "response_type": "code", "scope": settings.oidc_scopes, "state": state, "nonce": nonce,
+                    "code_challenge": challenge, "code_challenge_method": "S256"})
+    return RedirectResponse(f"{meta['authorization_endpoint']}?{qs}", 303)
 
 
 @router.get("/callback")
@@ -172,26 +225,26 @@ async def callback(request: Request, code: str = "", state: str = "", error: str
     login = prefix(request) + "/auth/login"
     oauth = request.session.pop("oauth", None)
     if error:
-        return RedirectResponse(f"{login}?error=google", 303)
+        return RedirectResponse(f"{login}?error=idp", 303)
     if not oauth or not state or not secrets.compare_digest(oauth["state"], state) or not code:
         return RedirectResponse(f"{login}?error=state", 303)
     try:
+        meta = await oidc_meta()
         async with http_client() as c:
-            tok = await c.post(GOOGLE_TOKEN, data={
-                "code": code, "client_id": settings.google_client_id, "client_secret": settings.google_client_secret,
+            tok = await c.post(meta["token_endpoint"], data={
+                "code": code, "client_id": settings.oidc_client_id, "client_secret": settings.oidc_client_secret,
                 "redirect_uri": _redirect_uri(request), "grant_type": "authorization_code",
                 "code_verifier": oauth["verifier"]})
             tok.raise_for_status()
-            info = await c.get(GOOGLE_USERINFO, headers={"Authorization": f"Bearer {tok.json()['access_token']}"})
-            info.raise_for_status()
-            user = info.json()
-    except (httpx.HTTPError, KeyError, ValueError):
-        return RedirectResponse(f"{login}?error=google", 303)
-    email = str(user.get("email", "")).lower()
-    if not (email and user.get("email_verified") and email in allowed_emails()):  # lista vazia nega tudo
+            claims = await verify_id_token(tok.json()["id_token"], oauth["nonce"], meta)
+    except (httpx.HTTPError, jwt.PyJWTError, KeyError, ValueError):
+        return RedirectResponse(f"{login}?error=idp", 303)
+    email = str(claims.get("email", "")).lower()
+    verified = claims.get("email_verified") is True or not settings.oidc_require_verified_email
+    if not (email and verified and email in allowed_emails()):  # lista vazia nega tudo
         return RedirectResponse(f"{login}?error=denied", 303)
     nxt = request.session.pop("next", "/")
-    request.session["user"] = {"email": email, "name": user.get("name", email)}
+    request.session["user"] = {"email": email, "name": claims.get("name", email)}
     if not nxt.startswith("/") or nxt.startswith("//"):  # só caminhos locais
         nxt = "/"
     return RedirectResponse(prefix(request) + nxt, 303)

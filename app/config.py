@@ -11,11 +11,15 @@ class Settings(BaseSettings):
     # Palavra-passe (HTTP Basic): o acesso pela rede local. Vazia = desligada.
     web_user: str = "admin"
     web_password: str = ""
-    # Autenticação Google OAuth2 (opcional; exige HTTPS externo). Sem client_id/secret, só a LAN confiável entra.
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    google_allowed_emails: str = ""  # separados por vírgulas; vazio = ninguém
-    auth_redirect_uri: str = ""  # por ex. https://jtx.ddns.net/power/auth/callback
+    # Login OIDC (Auth0, Google...): opcional. Sem issuer/cliente fica desligado.
+    oidc_issuer: str = ""  # por ex. https://O-SEU-TENANT.eu.auth0.com  (tem de ser https)
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_allowed_emails: str = ""  # separados por vírgulas; vazio = ninguém
+    oidc_name: str = "SSO"  # texto do botão de login (por ex. Auth0)
+    oidc_scopes: str = "openid email profile"
+    oidc_require_verified_email: bool = True  # False: confiar só na lista de emails (Auth0: utilizadores sem email verificado)
+    auth_redirect_uri: str = ""  # vazio = deduzido do Host (ex.: http://lambdacore/power/auth/callback)
     secret_key: str = ""  # cookie de sessão; vazio = gerado em <pasta de dados>/.session_secret
     web_prefix: str = ""  # por ex. /power (caminho do cookie de sessão)
     lan_trusted: bool = False  # True: pedidos da rede local em HTTP dispensam login

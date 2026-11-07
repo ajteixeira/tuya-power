@@ -156,7 +156,7 @@ Edite o `.env`:
 | `TUYA_ACCESS_ID` / `TUYA_ACCESS_SECRET` | Credenciais do projeto Tuya |
 | `TUYA_ENDPOINT` | Predefinição `https://openapi.tuyaeu.com` |
 | `WEB_USER` / `WEB_PASSWORD` | Palavra-passe (HTTP Basic) para o acesso pela LAN. Vazia = desligada |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ALLOWED_EMAILS` / `AUTH_REDIRECT_URI` / `WEB_PREFIX` / `SECRET_KEY` / `LAN_TRUSTED` / `LAN_HOSTS` | Login Google e rede local confiável (ver «Autenticação») |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ALLOWED_EMAILS` / `OIDC_NAME` / `OIDC_REQUIRE_VERIFIED_EMAIL` / `AUTH_REDIRECT_URI` / `WEB_PREFIX` / `SECRET_KEY` / `LAN_TRUSTED` / `LAN_HOSTS` | Login OIDC e rede local confiável (ver «Autenticação») |
 | `DB_PATH` | Caminho da base de dados (predefinição `data/tuya.db`) |
 | `SYNC_HOUR` | Hora local da descarga diária feita pelo próprio site (predefinição 3) |
 | `SYNC_IN_APP` | `true` (predefinição) mantém a sincronização diária do site; `false` se usar só o cron |
@@ -192,39 +192,50 @@ combinam; sem nenhum configurado ninguém entra (fecha por omissão):
 
 | Mecanismo | Ativação | Para quê |
 |---|---|---|
-| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD` | O acesso normal pela LAN: o navegador pede utilizador e palavra-passe. **Ativo.** |
-| **Login Google** (OAuth2 + PKCE) | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ALLOWED_EMAILS` | Implementado e **desligado**: a Google só aceita retorno em HTTPS, por isso só serve com acesso externo em HTTPS. |
-| **Rede local confiável** | `LAN_TRUSTED=true` | Dispensa o login a pedidos da LAN. **Desligado.** Qualquer equipamento da rede poderia alterar os limites do disjuntor. |
+| **Palavra-passe** (HTTP Basic) | `WEB_USER` / `WEB_PASSWORD` | Acesso pela LAN: o navegador pede utilizador e palavra-passe. |
+| **Login OIDC** (Auth0, Google…) | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ALLOWED_EMAILS` | OAuth2 com validação do `id_token` (JWT). Desligado enquanto não houver configuração. |
+| **Rede local confiável** | `LAN_TRUSTED=true` | Dispensa o login a pedidos da LAN. **Desligado**: qualquer equipamento da rede poderia alterar os limites do disjuntor. |
 
 **Palavra-passe.** Altere-a no `.env` da pasta de dados e reinicie o contentor (ver «Contentor»). Sem
-`WEB_PASSWORD` a palavra-passe fica desligada (e, sem Google nem LAN confiável, o site recusa tudo).
+`WEB_PASSWORD` fica desligada (e, sem OIDC nem LAN confiável, o site recusa tudo).
 
-**Login Google (`app/auth.py`).** OAuth2 Authorization Code com PKCE sobre o `httpx`. Entram só as contas
-**verificadas** cujo email esteja em `GOOGLE_ALLOWED_EMAILS` (separados por vírgulas; **vazio = ninguém**). A sessão é
-um cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`;
-assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com Google ativo, quem não tem
-sessão é levado a `/auth/login`, que oferece Google e, se existir `WEB_PASSWORD`, «Entrar com utilizador e
-palavra-passe» (`/auth/basic`, que troca a palavra-passe por uma sessão). Fragmentos HTMX e `fetch` sem sessão recebem
-401 e levam o navegador ao login.
+**Login OIDC (`app/auth.py`).** Authorization Code com **PKCE** e `nonce`, sobre o `httpx`, para qualquer
+fornecedor OpenID Connect com descoberta (`{issuer}/.well-known/openid-configuration`). O `id_token` é validado como
+JWT: só **RS256** (recusa `none` e `HS256`), assinatura pelo JWKS (em cache 1 hora; se o `kid` for desconhecido,
+volta a obtê-lo uma vez, para a rotação de chaves) e verificação de `iss`, `aud`, `exp`, `iat`, `sub` e `nonce`.
+Entram só os emails em `OIDC_ALLOWED_EMAILS` (vírgulas; **vazio = ninguém**) com email verificado
+(`OIDC_REQUIRE_VERIFIED_EMAIL=false` confia só na lista). O `OIDC_ISSUER` tem de ser `https://`. A sessão é um
+cookie assinado e próprio (`tuya_power_session`, `HttpOnly`, `SameSite=Lax`, 7 dias, no caminho de `WEB_PREFIX`;
+assinatura com `SECRET_KEY` ou um segredo gerado em `<pasta de dados>/.session_secret`). Com OIDC ativo, quem não
+tem sessão é levado a `/auth/login`, que oferece o fornecedor e, se existir `WEB_PASSWORD`, «Entrar com utilizador e
+palavra-passe» (`/auth/basic`, que troca a palavra-passe por uma sessão). Fragmentos HTMX e `fetch` sem sessão
+recebem 401 e levam o navegador ao login.
 
-Para o ativar (exige HTTPS externo a chegar ao lighttpd, que hoje **não existe**: o `jtx.ddns.net` não aponta para
-esta máquina):
-1. Na [Google Cloud Console](https://console.cloud.google.com/apis/credentials) crie (ou reutilize, como o do
-   scrapper) um *OAuth client ID* **Web application** e junte em *Authorized redirect URIs* o `AUTH_REDIRECT_URI`
-   (por exemplo `https://jtx.ddns.net/power/auth/callback`; HTTPS obrigatório, exceto `localhost`).
-2. No `.env` da pasta de dados: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_EMAILS`,
-   `AUTH_REDIRECT_URI` e `WEB_PREFIX=/power`.
-3. Recrie o contentor. O login tem de começar no endereço público (o estado do OAuth fica no cookie desse domínio).
+**Ativar com o Auth0** (plano gratuito; o Auth0 aceita `http://` com um nome da LAN no endereço de retorno)
+1. Em auth0.com crie um *tenant* e uma aplicação do tipo **Regular Web Application**.
+2. Em *Allowed Callback URLs* ponha `http://lambdacore/power/auth/callback` (correspondência exata: um URL por nome
+   ou IP com que aceda ao site).
+3. Em *Authentication → Database*, desligue os registos públicos (*Disable Sign Ups*) e crie o utilizador no painel.
+   Os utilizadores criados no painel têm o email por verificar: marque-o como verificado (*User → Email verified*) ou
+   ponha `OIDC_REQUIRE_VERIFIED_EMAIL=false`.
+4. No `.env` da pasta de dados: `OIDC_ISSUER=https://<tenant>.<região>.auth0.com`, `OIDC_CLIENT_ID`,
+   `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED_EMAILS=<o seu email>`, `OIDC_NAME=Auth0` e `WEB_PREFIX=/power`.
+5. `docker restart tuya-power`. O endereço de retorno deduz-se do `Host` do pedido (ou fixe-o em `AUTH_REDIRECT_URI`).
+
+**Limites desta configuração.** O login depende da internet (o contentor liga ao Auth0; as sessões abertas duram 7
+dias, e a palavra-passe serve de alternativa). Na LAN o tráfego é HTTP: o `id_token` não passa pelo navegador, mas o
+cookie de sessão pode ser lido na rede. O Auth0 guarda os emails (serviço de terceiros). Sem HTTPS externo não há como
+usar fornecedores que o exigem no retorno (Google, Microsoft).
 
 **Rede local confiável (`LAN_TRUSTED`).** Dispensa o login se **todos** estes indícios de rede local se verificarem:
 esquema `http` (sem `X-Forwarded-Proto: https`/`Forwarded: proto=https`), `Host` em `LAN_HOSTS` e IP do cliente
 privado (o **último** valor do `X-Forwarded-For`, só confiado se o par TCP for o proxy). Basta um indício de acesso
-externo para exigir login. Só deve ligar-se se o acesso externo passar por um proxy que envie
-`X-Forwarded-Proto: https` e `X-Forwarded-For`, e depois de confirmar que um pedido pelo URL público com `Host:
-lambdacore` forjado pede login. O `deploy/94-tuya-power.conf` não sobrescreve o `X-Forwarded-Proto`.
+externo para exigir login. O `deploy/94-tuya-power.conf` não sobrescreve o `X-Forwarded-Proto`.
 
-**Testes** (Google simulada, sem rede): `python tests/test_auth.py` (43 verificações: palavra-passe, fluxo Google,
-recusas, regra LAN com cabeçalhos forjados, sem configuração).
+**Testes** (IdP simulado, JWT assinados com uma chave gerada no teste, sem rede): `python tests/test_auth.py`
+(55 verificações: palavra-passe, fluxo OIDC, validação do JWT — nonce, audiência, emissor, expiração, assinatura,
+`alg=none`/`HS256`, rotação de chaves —, autorização por email, regra LAN com cabeçalhos forjados e ausência de
+configuração).
 
 ## Contentor (Docker)
 
@@ -332,7 +343,7 @@ sobrecorrente 16 A, sobretensão 265 V e subtensão 90 V, todas com corte ativo.
 - Isto altera proteções reais do disjuntor. Experimente primeiro com uma alteração segura e
   confirme na app Tuya Smart.
 - A unidade/escala da potência alta ainda não está confirmada.
-- Só chega a este formulário quem passar a autenticação (palavra-passe, Google ou rede local confiável); ver «Autenticação».
+- Só chega a este formulário quem passar a autenticação (palavra-passe, OIDC ou rede local confiável); ver «Autenticação».
 - Para outro modelo de disjuntor, os tipos podem ser diferentes; ajuste `ALARM_TYPES` em
   `app/main.py`.
 

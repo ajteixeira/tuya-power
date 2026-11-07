@@ -3,15 +3,15 @@
 <div class="card" style="max-width:420px;margin:48px auto;text-align:center">
   <h2 style="margin-top:0">Tuya-Power</h2>
   {% if error %}<p class="err">{{ error }}</p>{% endif %}
-  {% if google %}
-    <p class="mut">Entre com a sua conta Google autorizada.</p>
-    <p><a class="gbtn" href="{{ P(request) }}/auth/google">Entrar com Google</a></p>
+  {% if oidc %}
+    <p class="mut">Entre com a sua conta autorizada.</p>
+    <p><a class="gbtn" href="{{ P(request) }}/auth/sso">Entrar com {{ oidc_name }}</a></p>
   {% endif %}
   {% if password %}
     <p><a href="{{ P(request) }}/auth/basic">Entrar com utilizador e palavra-passe</a></p>
   {% endif %}
-  {% if not google and not password %}
-    <p class="err">O login não está configurado (nem Google nem palavra-passe).</p>
+  {% if not oidc and not password %}
+    <p class="err">O login não está configurado (nem login OIDC nem palavra-passe).</p>
   {% endif %}
 </div>
 {% endblock %}
